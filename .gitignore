@@ -1,1 +1,6 @@
 .idea/
+
+# Images to test
+*.jpeg
+*.jpg
+*.png
