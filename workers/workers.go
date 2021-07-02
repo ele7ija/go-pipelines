@@ -11,7 +11,6 @@ type Image struct {
 	FullPath string
 	Thumbnail image.Image
 	ThumbnailPath string
-
 }
 
 func NewImage(fullImage image.Image) *Image {
@@ -25,11 +24,14 @@ type ImageServiceI interface {
 	CreateThumbnail(image *Image) (*Image, error)
 	Persist(image *Image) (*Image, error)
 	PersistMetadata(image *Image) (*Image, error)
-
 }
 
 type ImageService struct {
+}
 
+func NewImageService() *ImageService {
+
+	return &ImageService{}
 }
 
 func (i *ImageService) CreateThumbnail(image *Image) (*Image, error) {
