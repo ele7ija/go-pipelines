@@ -48,6 +48,7 @@ func DoConcurrentApi() {
 
 	pipeline := pipeApi.NewPipeline(genFilter, sqFilter1, sqFilter2)
 
+	// This is a dummy generator (GenWorker overrides it)
 	sl := make([]int, 100)
 	ch := make(chan interface{}, 100)
 	for i := range sl {
@@ -66,6 +67,7 @@ func DoConcurrentSimpleApi() {
 
 	pipeline := pipeApi.NewPipeline(singleFilter)
 
+	// This is a dummy generator (GenWorker overrides it)
 	sl := make([]int, 100)
 	ch := make(chan interface{}, 100)
 	for i := range sl {
