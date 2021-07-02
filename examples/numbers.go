@@ -13,6 +13,7 @@ type GenWorker struct {
 }
 
 func NewGenWorker(max int) *GenWorker {
+
 	return &GenWorker{max: max, curr: 0}
 }
 
@@ -28,6 +29,7 @@ type SqWorker struct {
 }
 
 func NewSqWorker() *SqWorker {
+
 	return &SqWorker{}
 }
 
@@ -40,7 +42,7 @@ func (f*SqWorker) Work(in interface{}) interface{} {
 
 func DoConcurrentApi() {
 
-	genFilter := pipeApi.NewSerialFilter(NewGenWorker(100))
+	genFilter := pipeApi.NewParallelFilter(NewGenWorker(100))
 	sqFilter1 := pipeApi.NewParallelFilter(NewSqWorker())
 	sqFilter2 := pipeApi.NewParallelFilter(NewSqWorker())
 
@@ -54,6 +56,24 @@ func DoConcurrentApi() {
 	close (ch)
 
 	for n := range pipeline.Filter(ch) {
-		fmt.Print(n)
+		fmt.Print("|", n, "|")
+	}
+}
+
+func DoConcurrentSimpleApi() {
+
+	singleFilter := pipeApi.NewParallelFilter(NewGenWorker(100), NewSqWorker(), NewSqWorker())
+
+	pipeline := pipeApi.NewPipeline(singleFilter)
+
+	sl := make([]int, 100)
+	ch := make(chan interface{}, 100)
+	for i := range sl {
+		ch <- i
+	}
+	close (ch)
+
+	for n := range pipeline.Filter(ch) {
+		fmt.Print("|", n, "|")
 	}
 }

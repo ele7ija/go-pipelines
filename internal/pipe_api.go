@@ -13,21 +13,22 @@ type Worker interface {
 	Work(in interface{}) interface{}
 }
 
+// SerialFilter is filters a single item at a time
 type SerialFilter struct {
-	worker Worker
+
+	workers []Worker
 }
 
-func NewSerialFilter(worker Worker) *SerialFilter {
-	return &SerialFilter{worker}
+func NewSerialFilter(workers ...Worker) *SerialFilter {
+	return &SerialFilter{workers}
 }
 
 func (f*SerialFilter) Filter(in <-chan interface{}) <-chan interface{} {
 
-	fmt.Println("\nStarting SerialFilter...")
 	out := make(chan interface{})
 	go func() {
 		for nInterface := range in {
-			out <- f.worker.Work(nInterface)
+			out <- f.pipe(nInterface, 0)
 		}
 		fmt.Println("\n...Finishing SerialFilter")
 		close(out)
@@ -35,35 +36,51 @@ func (f*SerialFilter) Filter(in <-chan interface{}) <-chan interface{} {
 	return out
 }
 
-type ParallelFilter struct {
+func (f *SerialFilter) pipe(in interface{}, index int) interface{} {
 
-	worker Worker
+	if index == len(f.workers) - 1 {
+		return f.workers[index].Work(in)
+	}
+	return f.pipe(f.workers[index].Work(in), index + 1)
 }
 
-func NewParallelFilter(worker Worker) *ParallelFilter {
-	return &ParallelFilter{worker}
+// ParallelFilter can filter multiple items at a time
+type ParallelFilter struct {
+
+	workers []Worker
+}
+
+func NewParallelFilter(workers ...Worker) *ParallelFilter {
+	return &ParallelFilter{workers}
 }
 
 func (f*ParallelFilter) Filter(in <-chan interface{}) <-chan interface{} {
 
-	fmt.Println("\nStarting ParallelFilter...")
 	out := make(chan interface{})
 	wg := sync.WaitGroup{}
 	go func() {
 		for nInterface := range in {
 			wg.Add(1)
 			go func(nInterface interface{}) {
-				out <- f.worker.Work(nInterface)
+				out <- f.pipe(nInterface, 0)
 				wg.Done()
 			}(nInterface)
 		}
 		wg.Wait()
-		fmt.Println("\nFinishing ParallelFilter")
 		close(out)
 	}()
 	return out
 }
 
+func (f *ParallelFilter) pipe(in interface{}, index int) interface{} {
+
+	if index == len(f.workers) - 1 {
+		return f.workers[index].Work(in)
+	}
+	return f.pipe(f.workers[index].Work(in), index + 1)
+}
+
+// Pipeline aggregates multiple Filter
 type Pipeline struct {
 
 	filters []Filter
@@ -95,7 +112,6 @@ func (p*Pipeline) Filter(in <-chan interface{}) <-chan interface{} {
 
 func (p*Pipeline) pipe(in <-chan interface{}, index int) <-chan interface{} {
 
-	fmt.Println("Piping filter: ", index)
 	if index == len(p.filters) - 1 {
 		return p.filters[len(p.filters) - 1].Filter(in)
 	}
