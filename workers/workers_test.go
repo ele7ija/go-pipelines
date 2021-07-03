@@ -1,10 +1,8 @@
 package workers
 
 import (
-	"fmt"
 	"image"
 	"image/jpeg"
-	_ "image/jpeg"
 	"io/ioutil"
 	"os"
 	"testing"
@@ -12,25 +10,13 @@ import (
 
 func TestImageService_CreateThumbnail(t *testing.T) {
 
-	existingImageFile, err := os.Open("test.jpg")
-	if err != nil {
-		t.Errorf("test image doesn't exist %s", err)
-	}
-	if existingImageFile == nil {
-		t.Errorf("image null")
-	}
-	defer existingImageFile.Close()
-	imageData, _, err := image.Decode(existingImageFile)
-	if err != nil {
-		t.Errorf("image failed decoding")
-	}
-	testImage := NewImage(imageData)
-
+	testImage := openTestImage(t)
+	testImage.Thumbnail = nil
 
 	t.Run("create and open", func(t *testing.T) {
 
 		imageService := NewImageService()
-		testImage, err := imageService.CreateThumbnail(testImage)
+		err := imageService.CreateThumbnail(testImage)
 		if err != nil {
 			t.Errorf("error creating thumbnail: %s", err)
 		}
@@ -52,35 +38,65 @@ func TestImageService_CreateThumbnail(t *testing.T) {
 		// read the resolution from file
 		savedImage, format, _ := image.Decode(file)
 		g := savedImage.Bounds()
-		if g.Dx() != 200 || g.Dy() != 200 || format != "jpeg" {
+		if uint(g.Dx()) != ThumbnailWidth || uint(g.Dy()) != ThumbnailHeigth || format != "jpeg" {
 			t.Errorf("image incorrect")
 		}
-		fmt.Println(file.Name())
 	})
 }
 
 func TestImageService_Persist(t *testing.T) {
 
-	t.Run("jpeg image", func(t *testing.T) {
-		// Read image from file that already exists
-		existingImageFile, err := os.Open("test.jpg")
-		defer existingImageFile.Close()
+	testImage := openTestImage(t)
+
+	t.Run("persist images", func(t *testing.T) {
+
+		imageService := NewImageService()
+		err := imageService.Persist(testImage)
 		if err != nil {
-			t.Errorf("image doesn't exist")
-		}
-		if existingImageFile == nil {
-			t.Errorf("image null")
+			t.Errorf("error while persisting images: %s", err)
 		}
 
-		// Calling the generic image.Decode() will tell give us the data
-		// and type of image it is as a string. We expect "png"
-		_, imageType, err := image.Decode(existingImageFile)
-		if err != nil {
-			t.Errorf("image failed decoding")
+		if testImage.FullPath == "" || testImage.ThumbnailPath == "" {
+			t.Errorf("paths are empty")
+		}
+		if _, err := os.Stat(testImage.FullPath); os.IsNotExist(err) {
+			t.Errorf("full image wasn't saved: %s", err)
+		}
+		if _, err := os.Stat(testImage.ThumbnailPath); os.IsNotExist(err) {
+			t.Errorf("full image wasn't saved: %s", err)
 		}
 
-
-		fmt.Println(imageType)
+		if err := os.Remove(testImage.FullPath); err != nil {
+			t.Errorf("couldn't remove full image: %s", err)
+		}
+		if err := os.Remove(testImage.ThumbnailPath); err != nil {
+			t.Errorf("couldn't remove thumbnail: %s", err)
+		}
 	})
 
+}
+
+func openTestImage(t *testing.T) *Image {
+
+	existingImageFile, err := os.Open("test.jpg")
+	if err != nil {
+		t.Errorf("test image doesn't exist %s", err)
+		return nil
+	}
+	if existingImageFile == nil {
+		t.Errorf("image null")
+		return nil
+	}
+	defer existingImageFile.Close()
+
+	imageData, _, err := image.Decode(existingImageFile)
+	if err != nil {
+		t.Errorf("image failed decoding: %s", err)
+		return nil
+	}
+
+	return &Image{
+		Full:          imageData,
+		Thumbnail:     imageData,
+	}
 }
