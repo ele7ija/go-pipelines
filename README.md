@@ -55,3 +55,20 @@ Takođe, nisam našao materijal u kom su analizirane performanse pri primeni ovo
 
 ## Plan rada
 Planiram da do odbrane projekta implementiram serijsku obradu, kao i osnovnu protočnu obradu, a ukoliko vreme dozvoli i ostale dve. Takođe, kreirao bih i Pharo servis koristeći Roassal biblioteku koja bi vizualizovala navedene metrike. Za kasniji rad bih ostavio neodrađene šablone protočne obrade, proširenu analizu performansi i složenosti i pisanje teorije.
+
+
+# Pokretanje
+1. Baza podataka
+
+`docker run --name go-pipelines-postgres -e POSTGRES_PASSWORD=go-pipelines -e POSTGRES_USER=go-pipelines -e POSTGRES_DB=go-pipelines -d -p 5432:5432 postgres`
+`docker exec -it go-pipelines-postgres bash`
+
+```sql
+CREATE TABLE image (id serial PRIMARY KEY, name VARCHAR, fullpath VARCHAR, thumbnailpath VARCHAR);
+```
+```sql
+CREATE TABLE user (id serial PRIMARY KEY);
+```
+```sql
+CREATE TABLE user_images (user_id INT NOT NULL, image_id INT NOT NULL, PRIMARY KEY (user_id, image_id), FOREIGN KEY (user_id) REFERENCES user(id), FOREIGN KEY (image_id) REFERENCES image(id));
+```
