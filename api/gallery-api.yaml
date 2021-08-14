@@ -1,0 +1,31 @@
+swagger: "2.0"
+info:
+  title: Go Pipelines Gallery REST API
+  description: This is a collection of REST API endpoints for the Go Pipelines Gallery
+  version: 1.0.0
+host: www
+schemes:
+  - http
+paths:
+  /images:
+    get:
+      summary: Gets all the images for a user
+      responses:
+        200:
+          description: JSON of all the images including the thumbnail but not the full image
+    post:
+      summary: Creates images for a user
+      responses:
+        200:
+          description: JSON of all the images including the thumbnail but not the full image
+  /images/{id}:
+    get:
+      parameters:
+        - name: id
+          type: integer
+          required: true
+          in: path
+      summary: Gets one image
+      responses:
+        200:
+          description: JSON of the image including the thubmnail as well as full image

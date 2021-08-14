@@ -10,8 +10,10 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	_ "github.com/lib/pq"
+	"log"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 )
 
@@ -74,10 +76,51 @@ func imagesRouter(db *sql.DB) http.Handler {
 
 func createImages(db *sql.DB) func(w http.ResponseWriter, r *http.Request) {
 
-	//imagesService := workers.NewImageService(db)
+	imagesService := workers.NewImageService(db)
 	return func(w http.ResponseWriter, r *http.Request) {
 
-		w.Write([]byte(fmt.Sprintf("created")))
+		r.ParseMultipartForm(2 << 30) // 1GB
+		fhs := r.MultipartForm.File["images"]
+
+		// asynchronously add starting items
+		startingItems := make(chan pipeApi.Item, len(fhs))
+		go func() {
+			wg := sync.WaitGroup{}
+			wg.Add(len(fhs))
+			for _, fh := range fhs {
+				startingItems <- pipeApi.NewGenericItem(fh)
+				wg.Done()
+			}
+			wg.Wait()
+			close(startingItems)
+		}()
+
+		pipeline := workers.GetCreateImagesPipeline(imagesService)
+		items, errors := pipeline.Filter(r.Context(), startingItems)
+		go func() {
+			for err := range errors {
+				fmt.Println("Error in the CreateImagesPipeline: ", err)
+			}
+		}()
+
+		// Send response
+		w.Header().Set("Content-Type", "application/json")
+		counter := 0
+		w.Write([]byte("{\"images\": ["))
+		for item := range items {
+			log.Printf("Sending image no: %d", counter)
+			counter++
+			img := item.GetPart(0).(*workers.ImageBase64)
+			err := json.NewEncoder(w).Encode(img)
+			if err != nil {
+				w.WriteHeader(500)
+			}
+			w.Write([]byte(","))
+		}
+
+		w.Write([]byte("\"void\"]}"))
+
+		w.WriteHeader(200)
 	}
 }
 
@@ -87,40 +130,53 @@ func getAllImages(db *sql.DB) func(w http.ResponseWriter, r *http.Request) {
 	imagesService := workers.NewImageService(db)
 	return func(w http.ResponseWriter, r *http.Request) {
 
-		pipeline := workers.GetAllImagesPipeline(imagesService)
-
 		images, errors, err := imagesService.GetAllMetadata(r.Context())
 		if err != nil {
+			log.Printf("%v", err)
 			w.WriteHeader(500)
 			w.Write([]byte("errored while getting images metadata"))
 			return
 		}
+		go func() {
+			for err := range errors {
+				log.Println("Error in the GetAllMetadata: ", err)
+			}
+		}()
+
+		// Add starting items and filter them -> we use an unbuffered channel because we don't know how many there are
 		startingItems := make(chan pipeApi.Item)
-		go func() {
-			for img := range images {
-				startingItems <- pipeApi.NewGenericItem(img)
-			}
-			close(startingItems)
-		}()
-		go func() {
-			for err := range errors {
-				fmt.Println("Error in the GetAllMetadata: ", err)
-			}
-		}()
-
+		pipeline := workers.GetAllImagesPipeline(imagesService)
 		items, errors := pipeline.Filter(r.Context(), startingItems)
+
+		// adding the starting items can be done concurrently too
+		for img := range images {
+			startingItems <- pipeApi.NewGenericItem(img)
+		}
+		close(startingItems)
+
 		go func() {
 			for err := range errors {
-				fmt.Println("Error in the GetImagePipeline: ", err)
+				log.Println("Error in the GetImagePipeline: ", err)
 			}
 		}()
 
+		w.Header().Set("Content-Type", "application/json")
+		counter := 0
+		w.Write([]byte("{\"images\": ["))
 		for item := range items {
-			w.Header().Set("Content-Type", "application/json")
-			if err := json.NewEncoder(w).Encode(item.GetPart(0).(workers.Image)); err != nil {
+			log.Printf("Sending image no: %d", counter)
+			counter++
+			img := item.GetPart(0).(*workers.ImageBase64)
+			err := json.NewEncoder(w).Encode(img)
+			if err != nil {
 				w.WriteHeader(500)
 			}
+			w.Write([]byte(","))
 		}
+
+		w.Write([]byte("\"void\"]}"))
+
+		w.WriteHeader(200)
 	}
 }
 
@@ -139,6 +195,7 @@ func getImage(db *sql.DB) func(w http.ResponseWriter, r *http.Request) {
 
 		ch := make(chan pipeApi.Item, 1)
 		ch <- pipeApi.NewGenericItem(imageId)
+		close(ch)
 		items, errors := pipeline.Filter(r.Context(), ch)
 		go func() {
 			for err := range errors {
@@ -148,7 +205,7 @@ func getImage(db *sql.DB) func(w http.ResponseWriter, r *http.Request) {
 
 		for item := range items {
 			w.Header().Set("Content-Type", "application/json")
-			if err := json.NewEncoder(w).Encode(item.GetPart(0).(workers.Image)); err != nil {
+			if err := json.NewEncoder(w).Encode(item.GetPart(0).(*workers.ImageBase64)); err != nil {
 				w.WriteHeader(500)
 			}
 		}

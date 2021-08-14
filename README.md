@@ -62,13 +62,14 @@ Planiram da do odbrane projekta implementiram serijsku obradu, kao i osnovnu pro
 
 `docker run --name go-pipelines-postgres -e POSTGRES_PASSWORD=go-pipelines -e POSTGRES_USER=go-pipelines -e POSTGRES_DB=go-pipelines -d -p 5432:5432 postgres`
 `docker exec -it go-pipelines-postgres bash`
+`psql -U go-pipelines`
 
 ```sql
 CREATE TABLE image (id serial PRIMARY KEY, name VARCHAR, fullpath VARCHAR, thumbnailpath VARCHAR);
 ```
 ```sql
-CREATE TABLE user (id serial PRIMARY KEY);
+CREATE TABLE "user" (id serial PRIMARY KEY);
 ```
 ```sql
-CREATE TABLE user_images (user_id INT NOT NULL, image_id INT NOT NULL, PRIMARY KEY (user_id, image_id), FOREIGN KEY (user_id) REFERENCES user(id), FOREIGN KEY (image_id) REFERENCES image(id));
+CREATE TABLE user_images (user_id INT NOT NULL, image_id INT NOT NULL, PRIMARY KEY (user_id, image_id), FOREIGN KEY (user_id) REFERENCES "user"(id), FOREIGN KEY (image_id) REFERENCES image(id));
 ```

@@ -2,6 +2,7 @@ package internal
 
 import (
 	"context"
+	"log"
 	"sync"
 )
 
@@ -157,6 +158,7 @@ func (p*Pipeline) AddFilter(filter Filter)  {
 
 func (p*Pipeline) Filter(ctx context.Context, in <-chan Item) (<-chan Item, <-chan error) {
 
+	log.Printf("Starting the pipeline...")
 	if len(p.filters) == 0 {
 		emptych := make(chan Item)
 		emptycherr := make(chan error)
@@ -169,6 +171,7 @@ func (p*Pipeline) Filter(ctx context.Context, in <-chan Item) (<-chan Item, <-ch
 
 func (p*Pipeline) pipe(ctx context.Context, in <-chan Item, index int) <-chan Item {
 
+	log.Printf("Going through the filter number: %d", index)
 	items, errors := p.filters[index].Filter(ctx, in)
 	go func() {
 		for err := range errors {

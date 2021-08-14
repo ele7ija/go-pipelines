@@ -1,8 +1,10 @@
 package workers
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"fmt"
 	pipeApi "github.com/ele7ija/go-pipelines/internal"
 	"github.com/nfnt/resize"
@@ -10,28 +12,68 @@ import (
 	"image/jpeg"
 	"io/ioutil"
 	"log"
+	"mime/multipart"
 	"os"
 	"sync"
 )
 
-var (
+const (
 	ThumbnailWidth  = uint(200)
 	ThumbnailHeight = uint(200)
 )
 
 type Image struct {
 
-	Name string
-	Full image.Image 		`json:"omitempty"`
-	FullPath string
-	Thumbnail image.Image
-	ThumbnailPath string
+	Id int					`json:"id,omitempty"`
+	Name string				`json:"name"`
+	Full image.Image 		`json:"full,omitempty"`
+	FullPath string			`json:"fullPath"`
+	Thumbnail image.Image	`json:"thumbnail,omitempty"`
+	ThumbnailPath string	`json:"thumbnailPath"`
+}
+
+type ImageBase64 struct {
+
+	Id int					`json:"id,omitempty"`
+	Name string				`json:"name"`
+	FullBase64 string		`json:"fullBase64,omitempty"`
+	FullPath string			`json:"fullPath"`
+	ThumbnailBase64 string	`json:"thumbnailBase64,omitempty"`
+	ThumbnailPath string	`json:"thumbnailPath"`
 }
 
 func NewImage(name string, fullImage image.Image) *Image {
 	return &Image{
 		Name: name,
 		Full: fullImage,
+	}
+}
+
+func NewImageBase64(img *Image) *ImageBase64 {
+
+	fullBase64Encoding := ""
+	if img.Full != nil {
+		fullBuff := new(bytes.Buffer)
+		jpeg.Encode(fullBuff, img.Full, nil)
+		fullBase64Encoding = "data:image/jpeg;base64,"
+		fullBase64Encoding += base64.StdEncoding.EncodeToString(fullBuff.Bytes())
+	}
+
+	thumbBase64Encoding := ""
+	if img.Thumbnail != nil {
+		thumbBuff := new(bytes.Buffer)
+		jpeg.Encode(thumbBuff, img.Thumbnail, nil)
+		thumbBase64Encoding = "data:image/jpeg;base64,"
+		thumbBase64Encoding += base64.StdEncoding.EncodeToString(thumbBuff.Bytes())
+	}
+
+	return &ImageBase64{
+		Id:				 img.Id,
+		Name:            img.Name,
+		FullBase64:		 fullBase64Encoding,
+		FullPath:        img.FullPath,
+		ThumbnailBase64: thumbBase64Encoding,
+		ThumbnailPath:   img.ThumbnailPath,
 	}
 }
 
@@ -109,16 +151,14 @@ func (i *ImageServiceImpl) SaveMetadata(ctx context.Context, image *Image) (err 
 		}
 	}()
 
-	res, err := tx.Exec("INSERT INTO image(name, fullpath, thumbnailpath) VALUES( ?, ?, ? )", image.Name, image.FullPath, image.ThumbnailPath)
+	var imageId int
+	err = tx.QueryRowContext(ctx, "INSERT INTO image (name, fullpath, thumbnailpath) VALUES( $1, $2, $3 ) RETURNING id", image.Name, image.FullPath, image.ThumbnailPath).Scan(&imageId)
 	if err != nil {
 		return
 	}
-	imageId, err := res.LastInsertId()
-	if err != nil {
-		return
-	}
+	image.Id = imageId
 
-	if _, err = tx.Exec("INSERT INTO user_images(user_id, image_id) VALUES (?, ?)", ctx.Value("userId"), imageId); err != nil {
+	if _, err = tx.Exec("INSERT INTO user_images (user_id, image_id) VALUES ($1, $2)", ctx.Value("userId"), imageId); err != nil {
 		return
 	}
 
@@ -129,7 +169,7 @@ func (i *ImageServiceImpl) SaveMetadata(ctx context.Context, image *Image) (err 
 func (i *ImageServiceImpl) GetAllMetadata(ctx context.Context) (<-chan *Image, <-chan error, error) {
 
 	userId := ctx.Value("userId").(int)
-	rows, err := i.db.QueryContext(ctx, "SELECT image_id FROM user_images WHERE user_id = ?", userId)
+	rows, err := i.db.QueryContext(ctx, "SELECT image_id FROM user_images WHERE user_id = $1", userId)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -145,19 +185,22 @@ func (i *ImageServiceImpl) GetAllMetadata(ctx context.Context) (<-chan *Image, <
 		imageIds = append(imageIds, imageId)
 	}
 	rows.Close()
+	log.Printf("Got %d image ids to process", len(imageIds))
 
 	images := make(chan *Image, len(imageIds))
 	errors := make(chan error, len(imageIds))
 	wg := sync.WaitGroup{}
 	wg.Add(len(imageIds))
-	for imageId := range imageIds {
+	for _, imageId := range imageIds {
 
 		go func(imageIdTemp int) {
 			img, err := i.GetMetadata(ctx, imageIdTemp)
 			if err != nil {
 				errors <- err
+				log.Printf("Error processing image with id: %d", imageIdTemp)
 			} else {
 				images <- img
+				log.Printf("Processed successfully image with id: %d", imageIdTemp)
 			}
 			wg.Done()
 		}(imageId)
@@ -167,6 +210,7 @@ func (i *ImageServiceImpl) GetAllMetadata(ctx context.Context) (<-chan *Image, <
 		wg.Wait()
 		close(images)
 		close(errors)
+		log.Printf("Done processing all %d images", len(imageIds))
 	}()
 
 	return images, errors, nil
@@ -174,12 +218,12 @@ func (i *ImageServiceImpl) GetAllMetadata(ctx context.Context) (<-chan *Image, <
 
 func (i *ImageServiceImpl) GetMetadata(ctx context.Context, imageId int) (*Image, error) {
 
-	row := i.db.QueryRowContext(ctx, "SELECT name, fullpath, thumbnailpath FROM image WHERE image_id = ?", imageId)
+	row := i.db.QueryRowContext(ctx, "SELECT name, fullpath, thumbnailpath FROM image WHERE id = $1;", imageId)
 	if err := row.Err(); err != nil {
 		return nil, err
 	}
 
-	img := Image{}
+	img := Image{Id: imageId}
 	err := row.Scan(&img.Name, &img.FullPath, &img.ThumbnailPath)
 	if err != nil {
 		return nil, err
@@ -304,5 +348,124 @@ func (worker *LoadFullWorker) Work(ctx context.Context, in pipeApi.Item) (out pi
 	}
 
 	err = worker.LoadFull(ctx, img)
+	return pipeApi.NewGenericItem(img), err
+}
+
+type Base64EncodeWorker struct {
+}
+
+func (worker *Base64EncodeWorker) Work(ctx context.Context, in pipeApi.Item) (out pipeApi.Item, err error) {
+
+	if in.NumberOfParts() != 1 {
+		return nil, fmt.Errorf("incorrect input parameters length: %d", in.NumberOfParts())
+	}
+
+	var img *Image
+	var ok bool
+	if img, ok = in.GetPart(0).(*Image); ok == false {
+		return nil, fmt.Errorf("incorrect input parameter")
+	}
+
+	imgBase64 := NewImageBase64(img)
+	return pipeApi.NewGenericItem(imgBase64), err
+}
+
+type CreateThumbnailWorker struct {
+	ImageService
+}
+
+func (worker *CreateThumbnailWorker) Work(ctx context.Context, in pipeApi.Item) (out pipeApi.Item, err error)  {
+
+	if in.NumberOfParts() != 1 {
+		return nil, fmt.Errorf("incorrect input parameters length: %d", in.NumberOfParts())
+	}
+
+	var img *Image
+	var ok bool
+	if img, ok = in.GetPart(0).(*Image); ok == false {
+		return nil, fmt.Errorf("incorrect input parameter")
+	}
+
+	err = worker.CreateThumbnail(ctx, img)
+	return pipeApi.NewGenericItem(img), err
+}
+
+type PersistWorker struct {
+	ImageService
+}
+
+func (worker *PersistWorker) Work(ctx context.Context, in pipeApi.Item) (out pipeApi.Item, err error)  {
+
+	if in.NumberOfParts() != 1 {
+		return nil, fmt.Errorf("incorrect input parameters length: %d", in.NumberOfParts())
+	}
+
+	var img *Image
+	var ok bool
+	if img, ok = in.GetPart(0).(*Image); ok == false {
+		return nil, fmt.Errorf("incorrect input parameter")
+	}
+
+	err = worker.Persist(ctx, img)
+	return pipeApi.NewGenericItem(img), err
+}
+
+type SaveMetadataWorker struct {
+	ImageService
+}
+
+func (worker *SaveMetadataWorker) Work(ctx context.Context, in pipeApi.Item) (out pipeApi.Item, err error)  {
+
+	if in.NumberOfParts() != 1 {
+		return nil, fmt.Errorf("incorrect input parameters length: %d", in.NumberOfParts())
+	}
+
+	var img *Image
+	var ok bool
+	if img, ok = in.GetPart(0).(*Image); ok == false {
+		return nil, fmt.Errorf("incorrect input parameter")
+	}
+
+	err = worker.SaveMetadata(ctx, img)
+	return pipeApi.NewGenericItem(img), err
+}
+
+type RemoveFullImageWorker struct {
+}
+
+func (worker *RemoveFullImageWorker) Work(ctx context.Context, in pipeApi.Item) (out pipeApi.Item, err error)  {
+
+	if in.NumberOfParts() != 1 {
+		return nil, fmt.Errorf("incorrect input parameters length: %d", in.NumberOfParts())
+	}
+
+	var img *Image
+	var ok bool
+	if img, ok = in.GetPart(0).(*Image); ok == false {
+		return nil, fmt.Errorf("incorrect input parameter")
+	}
+
+	img.Full = nil
+	return pipeApi.NewGenericItem(img), err
+}
+
+type TransformFileHeaderWorker struct {
+}
+
+func (worker *TransformFileHeaderWorker) Work(ctx context.Context, in pipeApi.Item) (out pipeApi.Item, err error)  {
+
+	if in.NumberOfParts() != 1 {
+		return nil, fmt.Errorf("incorrect input parameters length: %d", in.NumberOfParts())
+	}
+
+	var fh *multipart.FileHeader
+	var ok bool
+	if fh, ok = in.GetPart(0).(*multipart.FileHeader); ok == false {
+		return nil, fmt.Errorf("incorrect input parameter")
+	}
+
+	f, err := fh.Open()
+	rawimg, err := jpeg.Decode(f)
+	img := NewImage(fh.Filename, rawimg)
 	return pipeApi.NewGenericItem(img), err
 }
