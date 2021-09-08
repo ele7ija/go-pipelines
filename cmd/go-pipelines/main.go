@@ -62,8 +62,12 @@ func main() {
 	}
 	log.Info("Successfully connected to DB!")
 
-	r.Mount("/images", imagesRouter(db))
+	r.Mount("/api/images", imagesRouter(db))
 
+	fs := http.FileServer(http.Dir("static"))
+	r.Handle("/*", http.StripPrefix("", fs))
+
+	// Collect performance stats
 	go func() {
 		conf := &metrics.Config{
 			Host:               "localhost:8086",
