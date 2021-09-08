@@ -1,11 +1,10 @@
 package workers
 
 import (
-	pipeApi "github.com/ele7ija/go-pipelines/internal"
+pipeApi "github.com/ele7ija/go-pipelines/internal"
 )
 
-// GetImagePipeline should get image metadata and load its thumbnail and full image
-func GetImagePipeline(service ImageService) *pipeApi.Pipeline {
+func MakeGetImagePipeline(service ImageService) *pipeApi.Pipeline {
 
 	getMetadataWorker := GetMetadataWorker{service}
 	getMetadataFilter := pipeApi.NewParallelFilter(&getMetadataWorker)
@@ -19,12 +18,11 @@ func GetImagePipeline(service ImageService) *pipeApi.Pipeline {
 	base64Encoder := Base64EncodeWorker{}
 	base64EncoderFilter := pipeApi.NewParallelFilter(&base64Encoder)
 
-	pipeline := pipeApi.NewPipeline(getMetadataFilter, loadThumbnailFilter, loadFullFilter, base64EncoderFilter)
+	pipeline := pipeApi.NewPipeline("GetImagePipeline", getMetadataFilter, loadThumbnailFilter, loadFullFilter, base64EncoderFilter)
 	return pipeline
 }
 
-// GetAllImagesPipeline should get all image metadata (before it starts) and load their thumbnails
-func GetAllImagesPipeline(service ImageService) *pipeApi.Pipeline {
+func MakeGetAllImagesPipeline(service ImageService) *pipeApi.Pipeline {
 
 	loadThumbnailWorker := LoadThumbnailWorker{service}
 	loadThumbnailFilter := pipeApi.NewParallelFilter(&loadThumbnailWorker)
@@ -32,12 +30,11 @@ func GetAllImagesPipeline(service ImageService) *pipeApi.Pipeline {
 	base64Encoder := Base64EncodeWorker{}
 	base64EncoderFilter := pipeApi.NewParallelFilter(&base64Encoder)
 
-	pipeline := pipeApi.NewPipeline(loadThumbnailFilter, base64EncoderFilter)
+	pipeline := pipeApi.NewPipeline("GetAllImagesPipeline", loadThumbnailFilter, base64EncoderFilter)
 	return pipeline
 }
 
-// GetCreateImagesPipeline should create all the images
-func GetCreateImagesPipeline(service ImageService) *pipeApi.Pipeline {
+func MakeCreateImagesPipeline(service ImageService) *pipeApi.Pipeline {
 
 	transformFHWorker := TransformFileHeaderWorker{}
 	transformFHFilter := pipeApi.NewParallelFilter(&transformFHWorker)
@@ -54,6 +51,6 @@ func GetCreateImagesPipeline(service ImageService) *pipeApi.Pipeline {
 	base64Encoder := Base64EncodeWorker{}
 	base64EncoderFilter := pipeApi.NewParallelFilter(&base64Encoder)
 
-	pipeline := pipeApi.NewPipeline(transformFHFilter, createThumbnailFilter, persistFilter, saveMetadataFilter, base64EncoderFilter)
+	pipeline := pipeApi.NewPipeline("CreateImagesPipeline", transformFHFilter, createThumbnailFilter, persistFilter, saveMetadataFilter, base64EncoderFilter)
 	return pipeline
 }

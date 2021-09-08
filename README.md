@@ -61,11 +61,11 @@ Planiram da do odbrane projekta implementiram serijsku obradu, kao i osnovnu pro
 1. Baza podataka
 
 `docker run --name go-pipelines-postgres -e POSTGRES_PASSWORD=go-pipelines -e POSTGRES_USER=go-pipelines -e POSTGRES_DB=go-pipelines -d -p 5432:5432 postgres`
-`docker exec -it go-pipelines-postgres bash`
+``
 `psql -U go-pipelines`
 
 ```sql
-CREATE TABLE image (id serial PRIMARY KEY, name VARCHAR, fullpath VARCHAR, thumbnailpath VARCHAR);
+CREATE TABLE image (id serial PRIMARY KEY, name VARCHAR, fullpath VARCHAR, thumbnailpath VARCHAR, resolution_x INT, resolution_y INT);
 ```
 ```sql
 CREATE TABLE "user" (id serial PRIMARY KEY);
@@ -73,3 +73,8 @@ CREATE TABLE "user" (id serial PRIMARY KEY);
 ```sql
 CREATE TABLE user_images (user_id INT NOT NULL, image_id INT NOT NULL, PRIMARY KEY (user_id, image_id), FOREIGN KEY (user_id) REFERENCES "user"(id), FOREIGN KEY (image_id) REFERENCES image(id));
 ```
+
+2. Prikupljanje podataka o performansama
+
+`docker run --name influxdb -e DOCKER_INFLUXDB_INIT_USERNAME=go-pipelines -e DOCKER_INFLUXDB_INIT_PASSWORD=go-pipelines -e DOCKER_INFLUXDB_INIT_ORG=go-pipelines -e DOCKER_INFLUXDB_INIT_BUCKET=stats -d -p 8086:8086 influxdb`
+`docker run -d -p 9090:3000/tcp --link influxdb --name=grafana grafana/grafana:4.1.0`

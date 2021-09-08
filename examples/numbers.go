@@ -22,7 +22,7 @@ func (f*GenWorker) Work(ctx context.Context, in pipeApi.Item) (pipeApi.Item, err
 	time.Sleep(time.Millisecond * 2)
 	curr := f.curr
 	f.curr++
-	item := pipeApi.NewGenericItem(curr)
+	item := curr
 	return item, nil
 }
 
@@ -37,8 +37,8 @@ func NewSqWorker() *SqWorker {
 func (f*SqWorker) Work(ctx context.Context, in pipeApi.Item) (pipeApi.Item, error) {
 
 	time.Sleep(time.Millisecond * 2)
-	n := in.GetPart(0).(int)
-	return pipeApi.NewGenericItem(n*n), nil
+	n := in.(int)
+	return n*n, nil
 }
 
 func DoConcurrentApi() {
@@ -47,16 +47,16 @@ func DoConcurrentApi() {
 	sqFilter1 := pipeApi.NewParallelFilter(NewSqWorker())
 	sqFilter2 := pipeApi.NewParallelFilter(NewSqWorker())
 
-	pipeline := pipeApi.NewPipeline(genFilter, sqFilter1, sqFilter2)
+	pipeline := pipeApi.NewPipeline("Etw", genFilter, sqFilter1, sqFilter2)
 
 	// This is a dummy generator (GenWorker overrides it)
 	ch := make(chan pipeApi.Item, 100)
 	for i := 0; i < 100; i++ {
-		ch <- pipeApi.NewGenericItem(i)
+		ch <- i
 	}
 	close (ch)
-
-	items, errors := pipeline.Filter(context.Background(), ch)
+	errors := make(chan error, 100)
+	items := pipeline.Filter(context.Background(), ch, errors)
 	go func() {
 		for err := range errors {
 			fmt.Printf("Unexpected error: %s", err)
@@ -65,6 +65,7 @@ func DoConcurrentApi() {
 	for n := range items {
 		fmt.Print("|", n, "|")
 	}
+	close(errors)
 
 }
 
@@ -72,23 +73,23 @@ func DoConcurrentSimpleApi() {
 
 	singleFilter := pipeApi.NewParallelFilter(NewGenWorker(100), NewSqWorker(), NewSqWorker())
 
-	pipeline := pipeApi.NewPipeline(singleFilter)
+	pipeline := pipeApi.NewPipeline("Etw", singleFilter)
 
 	// This is a dummy generator (GenWorker overrides it)
 	ch := make(chan pipeApi.Item, 100)
 	for i := 0; i < 100; i++ {
-		ch <- pipeApi.NewGenericItem(i)
+		ch <- i
 	}
 	close (ch)
-
-	items, errors := pipeline.Filter(context.Background(), ch)
+	errors := make(chan error, 100)
+	items := pipeline.Filter(context.Background(), ch, errors)
 	go func() {
 		for err := range errors {
 			fmt.Printf("Unexpected error: %s", err)
 		}
 	}()
 	for n := range items {
-		fmt.Print("|", n.GetPart(0).(int), "|")
+		fmt.Print("|", n.(int), "|")
 	}
-
+	close(errors)
 }

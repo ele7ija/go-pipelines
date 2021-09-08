@@ -1,0 +1,58 @@
+jsonContent := '/tmp/CreateImagePipeline74405352.json' asFileReference
+	readStreamDo: [ :readStream |
+		STONJSON fromStream: readStream ].
+
+sum := 0.
+(jsonContent at: 'FilterStats') do: [:f | sum := sum + (f at: 'TotalWork')].
+sizes := (jsonContent at: 'FilterStats') collect: [ :f | (f at: 'TotalWork') / sum].
+colors := (jsonContent at: 'FilterStats') collect: [ :f |
+	Transcript show: (f at: 'FilterType'); cr.
+	(f at: 'FilterType') = 'SerialFilter' ifTrue: (Color red alpha: 0.8) ifFalse: [.
+		(f at: 'FilterType') = 'ParallelFilter' ifTrue: (Color blue alpha: 0.8) ifFalse: [
+			(f at: 'FilterType') = 'BoundedParallelFilter' ifTrue: (Color blue alpha: 0.3) ifFalse: Color lightGray
+		]
+	].
+].
+
+newline := (String with: Character cr).
+filters := (jsonContent at: 'FilterStats') collectWithIndex: [:f :i |
+	| g |
+	g := RSGroup new.
+	Transcript show: (f at: 'NumberOfItems'); cr.
+	g add: (RSEllipse new size: ((sizes at: i) * 500); model: f; color: (colors at: i)).
+	label := (f at: 'FilterName') copyReplaceAll: ',' with: (String with: Character cr) .
+	label := label copyReplaceAll: '*workers.' with: ''.
+	newline := (String with: Character cr).
+	label := label , newline, ((((f at: 'TotalWork') / (f at: 'NumberOfItems')) asInteger) asString allButLast: 6), 'ms per item'.
+	g add: (RSMultilineLabelBuilder new shapeFor: label).
+	g asShape		 model: i].
+
+c := RSCanvas new.
+c addAll: filters.
+legend := RSLegend new.
+legend container: c.
+legend title: 'Performance of: ', (jsonContent at: 'PipelineName').
+legend text:
+	'This pipeline contains ',
+	(jsonContent at: 'FilterStats') size asString,
+	' filters.',
+	' The pipeline ran ',
+	(jsonContent at: 'TotalNumberOfFiltering') asString,
+	' times and the average run took: ',
+	((((jsonContent at: 'TotalDuration') / (jsonContent at: 'TotalNumberOfFiltering')) asInteger) asString allButLast: 6),
+	'ms'.
+legend build.
+
+c shapes @ RSDraggable.
+
+RSHorizontalLineLayout new gapSize: 20; on: filters.
+
+eb := RSEdgeBuilder arrowedLineWithOffset.
+eb canvas: c.
+eb moveBehind.
+eb README.
+eb color: Color gray.
+eb 	shapes: filters.
+eb useAssociations: { 1 -> 2 . 2 -> 3 . 3 -> 4 . 4 -> 5 . 5 -> 6 }.
+
+c @ RSCanvasController.

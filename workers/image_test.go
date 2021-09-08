@@ -7,11 +7,12 @@ import (
 	"image"
 	"image/jpeg"
 	"io/ioutil"
+	"math"
 	"os"
 	"testing"
 )
 
-var TestImagePath = "test.jpg"
+var TestImagePath = "/home/bp/go/src/github.com/ele7ija/go-pipelines/workers/test.jpg"
 
 func TestImageService_CreateThumbnail(t *testing.T) {
 
@@ -92,9 +93,11 @@ func TestImageService_SaveMetadata(t *testing.T) {
 		Name:          testName,
 		FullPath:      testFullPath,
 		ThumbnailPath: testThumbnailPath,
+		Resolution:    image.Point{X: 0, Y: 0},
 	}
 	userId := int64(1)
-	imageId := int64(1)
+	imageId := int64(10)
+	testResolutionX, testResolutionY := 0, 0
 
 	t.Run("success", func(t *testing.T) {
 
@@ -105,8 +108,8 @@ func TestImageService_SaveMetadata(t *testing.T) {
 		defer db.Close()
 
 		mock.ExpectBegin()
-		mock.ExpectExec("INSERT INTO image").WithArgs(testName, testFullPath, testThumbnailPath).WillReturnResult(sqlmock.NewResult(1, 1))
-		mock.ExpectExec("INSERT INTO user_images").WithArgs(userId, imageId).WillReturnResult(sqlmock.NewResult(1, 1))
+		mock.ExpectQuery("INSERT INTO image").WithArgs(testName, testFullPath, testThumbnailPath, testResolutionX, testResolutionY).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(imageId))
+		mock.ExpectExec("INSERT INTO user_images").WithArgs(userId, imageId).WillReturnResult(sqlmock.NewResult(imageId, 1))
 		mock.ExpectCommit()
 
 		service := NewImageService(db)
@@ -129,7 +132,7 @@ func TestImageService_SaveMetadata(t *testing.T) {
 		defer db.Close()
 
 		mock.ExpectBegin()
-		mock.ExpectExec("INSERT INTO image").WithArgs(testName, testFullPath, testThumbnailPath).WillReturnError(fmt.Errorf("some error"))
+		mock.ExpectQuery("INSERT INTO image").WithArgs(testName, testFullPath, testThumbnailPath, testResolutionX, testResolutionY).WillReturnError(fmt.Errorf("some err"))
 		mock.ExpectRollback()
 
 		service := NewImageService(db)
@@ -151,7 +154,7 @@ func TestImageService_SaveMetadata(t *testing.T) {
 		defer db.Close()
 
 		mock.ExpectBegin()
-		mock.ExpectExec("INSERT INTO image").WithArgs(testName, testFullPath, testThumbnailPath).WillReturnResult(sqlmock.NewResult(imageId, 1))
+		mock.ExpectQuery("INSERT INTO image").WithArgs(testName, testFullPath, testThumbnailPath, testResolutionX, testResolutionY).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(imageId))
 		mock.ExpectExec("INSERT INTO user_images").WithArgs(userId, imageId).WillReturnError(fmt.Errorf("some error"))
 		mock.ExpectRollback()
 
@@ -175,8 +178,8 @@ func TestImageService_SaveMetadata(t *testing.T) {
 		defer db.Close()
 
 		mock.ExpectBegin()
-		mock.ExpectExec("INSERT INTO image").WithArgs(testName, testFullPath, testThumbnailPath).WillReturnResult(sqlmock.NewResult(imageId, 1))
-		mock.ExpectExec("INSERT INTO user_images").WithArgs(userId, imageId).WillReturnResult(sqlmock.NewResult(1, 1))
+		mock.ExpectQuery("INSERT INTO image").WithArgs(testName, testFullPath, testThumbnailPath, testResolutionX, testResolutionY).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(imageId))
+		mock.ExpectExec("INSERT INTO user_images").WithArgs(userId, imageId).WillReturnResult(sqlmock.NewResult(imageId, 1))
 		mock.ExpectCommit().WillReturnError(fmt.Errorf("error while committing"))
 
 		service := NewImageService(db)
@@ -196,6 +199,7 @@ func TestImageService_GetMetadata(t *testing.T) {
 	testFullPath := "testFullPath"
 	testThumbnailPath := "testThumbnailPath"
 	imageId := int64(1)
+	testResolutionX, testResolutionY := 0, 0
 
 	t.Run("success", func(t *testing.T) {
 
@@ -205,16 +209,19 @@ func TestImageService_GetMetadata(t *testing.T) {
 		}
 		defer db.Close()
 
-		rows := sqlmock.NewRows([]string{"name", "fullpath", "thumbnailpath"}).
-			AddRow(testName, testFullPath, testThumbnailPath)
+		rows := sqlmock.NewRows([]string{"id", "name", "fullpath", "thumbnailpath", "resolution_x", "resolution_y"}).
+			AddRow(imageId, testName, testFullPath, testThumbnailPath, testResolutionX, testResolutionY)
 		mock.ExpectQuery("SELECT").WillReturnRows(rows)
 
 		service := NewImageService(db)
-		img, err := service.GetMetadata(context.Background(), int(imageId))
+		imgs, err := service.GetMetadata(context.Background(), []int{int(imageId)})
 		if err != nil {
 			t.Errorf("unexpected error: %s", err)
 		}
-
+		if len(imgs) != 1 {
+			t.Errorf("Got more than 1 image metadata")
+		}
+		img := imgs[0]
 		if img.Name != testName || img.FullPath != testFullPath || img.ThumbnailPath != testThumbnailPath {
 			t.Errorf("image was not instantiated well")
 		}
@@ -233,11 +240,11 @@ func TestImageService_GetMetadata(t *testing.T) {
 		defer db.Close()
 
 		//query := fmt.Sprintf("SELECT name, fullpath, thumbnailpath FROM image WHERE image_id = %d", imageId)
-		rows := sqlmock.NewRows([]string{"name", "fullpath", "thumbnailpath"})
+		rows := sqlmock.NewRows([]string{"id", "name", "fullpath", "thumbnailpath", "resolution_x", "resolution_y"})
 		mock.ExpectQuery("SELECT").WillReturnRows(rows)
 
 		service := NewImageService(db)
-		_, err = service.GetMetadata(context.Background(), int(imageId))
+		_, err = service.GetMetadata(context.Background(), []int{int(imageId)})
 		if err == nil {
 			t.Errorf("expected error of no rows found")
 		}
@@ -258,7 +265,7 @@ func TestImageService_GetMetadata(t *testing.T) {
 		mock.ExpectQuery("SELECT").WillReturnError(fmt.Errorf("some error"))
 
 		service := NewImageService(db)
-		_, err = service.GetMetadata(context.Background(), int(imageId))
+		_, err = service.GetMetadata(context.Background(), []int{int(imageId)})
 		if err == nil {
 			t.Errorf("expected query error")
 		}
@@ -278,16 +285,17 @@ func TestImageService_GetAllMetadata(t *testing.T) {
 	images := make([]*Image, 0)
 	for i := 0; i < noImages; i++ {
 		images = append(images, &Image{
-			fmt.Sprintf("%s%d", testName, i),
-			nil,
-			fmt.Sprintf("%s%d", testFullPath, i),
-			nil,
-			fmt.Sprintf("%s%d", testThumbnailPath, i),
+			Name: fmt.Sprintf("%s%d", testName, i),
+			FullPath: fmt.Sprintf("%s%d", testFullPath, i),
+			ThumbnailPath: fmt.Sprintf("%s%d", testThumbnailPath, i),
 		})
 	}
+	userId := 1
+	testResolutionX, testResolutionY := 0, 0
 
 	t.Run("success", func(t *testing.T) {
 
+		ctx := context.WithValue(context.Background(), "userId", userId)
 		db, mock, err := sqlmock.New()
 		if err != nil {
 			t.Fatalf("an error '%s' was not expected when opening a stub database connection", err)
@@ -300,18 +308,22 @@ func TestImageService_GetAllMetadata(t *testing.T) {
 		}
 		mock.ExpectQuery("SELECT image_id").WillReturnRows(imageIdRows)
 
+		imageRows := sqlmock.NewRows([]string{"id", "name", "fullpath", "thumbnailpath", "resolution_x", "resolution_y"})
 		for i := 0; i < noImages; i++ {
-			imageRows := sqlmock.NewRows([]string{"name", "fullpath", "thumbnailpath"})
-			imageRows.AddRow(images[i].Name, images[i].FullPath, images[i].ThumbnailPath)
-			mock.ExpectQuery("SELECT name, fullpath, thumbnailpath").WillReturnRows(imageRows)
+			imageRows.AddRow(i, images[i].Name, images[i].FullPath, images[i].ThumbnailPath, testResolutionX, testResolutionY)
 		}
+		mock.ExpectQuery("SELECT id, name, fullpath, thumbnailpath, resolution_x, resolution_y").WillReturnRows(imageRows)
 
 		service := NewImageService(db)
-		images, errors, err := service.GetAllMetadata(context.Background())
+		images, errors, err := service.GetAllMetadata(ctx)
 		if err != nil {
 			t.Errorf("unexpected error: %s", err)
 		}
-
+		go func() {
+			for err := range errors {
+				t.Errorf("an error happened in the pipeline: %s", err)
+			}
+		}()
 		counter := 0
 		for range images {
 			counter++
@@ -327,6 +339,7 @@ func TestImageService_GetAllMetadata(t *testing.T) {
 
 	t.Run("get ids fails", func(t *testing.T) {
 
+		ctx := context.WithValue(context.Background(), "userId", userId)
 		db, mock, err := sqlmock.New()
 		if err != nil {
 			t.Fatalf("an error '%s' was not expected when opening a stub database connection", err)
@@ -336,7 +349,7 @@ func TestImageService_GetAllMetadata(t *testing.T) {
 		mock.ExpectQuery("SELECT image_id").WillReturnError(fmt.Errorf("some error"))
 
 		service := NewImageService(db)
-		_, _, err = service.GetAllMetadata(context.Background())
+		_, _, err = service.GetAllMetadata(ctx)
 		if err == nil {
 			t.Errorf("should have failed on get ids")
 		}
@@ -346,8 +359,9 @@ func TestImageService_GetAllMetadata(t *testing.T) {
 		}
 	})
 
-	t.Run("get N images fails", func(t *testing.T) {
+	t.Run("N images don't exist", func(t *testing.T) {
 
+		ctx := context.WithValue(context.Background(), "userId", userId)
 		db, mock, err := sqlmock.New()
 		if err != nil {
 			t.Fatalf("an error '%s' was not expected when opening a stub database connection", err)
@@ -361,18 +375,15 @@ func TestImageService_GetAllMetadata(t *testing.T) {
 		mock.ExpectQuery("SELECT image_id").WillReturnRows(imageIdRows)
 
 		noFails := 3
-		for i := 0; i < noImages; i++ {
-			if i < noFails {
-				mock.ExpectQuery("SELECT name, fullpath, thumbnailpath").WillReturnError(fmt.Errorf("some error"))
-			} else {
-				imageRows := sqlmock.NewRows([]string{"name", "fullpath", "thumbnailpath"})
-				imageRows.AddRow(images[i].Name, images[i].FullPath, images[i].ThumbnailPath)
-				mock.ExpectQuery("SELECT name, fullpath, thumbnailpath").WillReturnRows(imageRows)
-			}
+		imageRows := sqlmock.NewRows([]string{"id", "name", "fullpath", "thumbnailpath", "resolution_x", "resolution_y"})
+		for i := 0; i < noImages - noFails; i++ {
+			imageRows.AddRow(i, images[i].Name, images[i].FullPath, images[i].ThumbnailPath, testResolutionX, testResolutionY)
 		}
+		mock.ExpectQuery("SELECT id, name, fullpath, thumbnailpath, resolution_x, resolution_y").WillReturnRows(imageRows)
+
 
 		service := NewImageService(db)
-		images, errors, err := service.GetAllMetadata(context.Background())
+		images, errors, err := service.GetAllMetadata(ctx)
 		if err != nil {
 			t.Errorf("unexpected error: %s", err)
 		}
@@ -385,12 +396,86 @@ func TestImageService_GetAllMetadata(t *testing.T) {
 		for range errors {
 			counterErr++
 		}
-		if counterImg != noImages - noFails || counterErr != noFails {
+		if counterErr != 1 && counterImg != 0 {
 			t.Errorf("incorrect number of images and errors")
 		}
 
 		if err := mock.ExpectationsWereMet(); err != nil {
 			t.Errorf("there were unfulfilled expectations: %s", err)
+		}
+	})
+}
+
+func TestDivide(t *testing.T) {
+
+	t.Run("less than size", func(t *testing.T) {
+
+		numberOfIds := 10
+		groupSize := 11
+		ids := make([]int, numberOfIds)
+		divisions := divide(ids, groupSize)
+		if len(divisions) != 1 {
+			t.Errorf("err")
+		}
+		if len(divisions[0]) != numberOfIds {
+			t.Errorf("err")
+		}
+	})
+
+	t.Run("equal to size", func(t *testing.T) {
+
+		numberOfIds := 10
+		groupSize := 11
+		ids := make([]int, numberOfIds)
+		divisions := divide(ids, groupSize)
+		if len(divisions) != 1 {
+			t.Errorf("err")
+		}
+		if len(divisions[0]) != numberOfIds {
+			t.Errorf("err")
+		}
+	})
+
+	t.Run("more than size last equal to group size", func(t *testing.T) {
+
+		numberOfIds := 15
+		groupSize := 5
+		ids := make([]int, numberOfIds)
+		divisions := divide(ids, groupSize)
+		for i, division := range divisions {
+			if i != len(divisions) - 1 && len(division) != groupSize {
+				t.Errorf("err")
+			} else if i == len(divisions) - 1 {
+				if int(math.Mod(float64(numberOfIds), float64(groupSize))) == 0 {
+					if len(division) != groupSize {
+						t.Errorf("err")
+					}
+				} else if len(division) != int(math.Mod(float64(numberOfIds), float64(groupSize))) {
+					t.Errorf("err")
+				}
+			}
+		}
+	})
+
+	t.Run("more than size last not equal to group size", func(t *testing.T) {
+
+		numberOfIds := 16
+		groupSize := 5
+		ids := make([]int, numberOfIds)
+		divisions := divide(ids, groupSize)
+		for i, division := range divisions {
+			if i != len(divisions) - 1 && len(division) != groupSize {
+				t.Errorf("err")
+			} else if i == len(divisions) - 1 {
+				fmt.Println(int(math.Mod(float64(numberOfIds), float64(groupSize))))
+				if int(math.Mod(float64(numberOfIds), float64(groupSize))) == 0 {
+					if len(division) != groupSize {
+						t.Errorf("err")
+					}
+				} else if len(division) != int(math.Mod(float64(numberOfIds), float64(groupSize))) {
+					t.Errorf("err")
+				}
+			}
 		}
 	})
 }
