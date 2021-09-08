@@ -27,9 +27,6 @@ const (
 	MaxOpenConns = 40
 )
 
-
-// TODO rewrite stuff using resource and store terminology https://github.com/dhax/go-base/blob/c3809c7cabc5d64b30d9a413897e261a2e3e819c/api/app/account.go#L44
-
 func main() {
 
 	log.SetFormatter(&log.TextFormatter{
@@ -77,7 +74,7 @@ func main() {
 			CollectionInterval: time.Second,
 		}
 		if err := metrics.RunCollector(conf); err != nil {
-			log.Errorf("An error with the collector happened: %s", err)
+			log.Errorf("An error happened while sending performance stats to InfluxDB: %s", err)
 		}
 	}()
 
