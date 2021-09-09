@@ -19,6 +19,7 @@ func MakeGetImagePipeline(service ImageService) *pipeApi.Pipeline {
 	base64EncoderFilter := pipeApi.NewParallelFilter(&base64Encoder)
 
 	pipeline := pipeApi.NewPipeline("GetImagePipeline", getMetadataFilter, loadThumbnailFilter, loadFullFilter, base64EncoderFilter)
+	pipeline.StartExtracting()
 	return pipeline
 }
 
@@ -31,6 +32,7 @@ func MakeGetAllImagesPipeline(service ImageService) *pipeApi.Pipeline {
 	base64EncoderFilter := pipeApi.NewParallelFilter(&base64Encoder)
 
 	pipeline := pipeApi.NewPipeline("GetAllImagesPipeline", loadThumbnailFilter, base64EncoderFilter)
+	pipeline.StartExtracting()
 	return pipeline
 }
 
@@ -40,13 +42,13 @@ func MakeCreateImagesPipeline(service ImageService) *pipeApi.Pipeline {
 	transformFHFilter := pipeApi.NewParallelFilter(&transformFHWorker)
 
 	createThumbnailWorker := CreateThumbnailWorker{service}
-	createThumbnailFilter := pipeApi.NewParallelFilter(&createThumbnailWorker)
+	createThumbnailFilter := pipeApi.NewBoundedParallelFilter(60, &createThumbnailWorker)
 
 	persistWorker := PersistWorker{service}
-	persistFilter := pipeApi.NewParallelFilter(&persistWorker)
+	persistFilter := pipeApi.NewBoundedParallelFilter(30, &persistWorker)
 
 	saveMetadataWorker := SaveMetadataWorker{service}
-	saveMetadataFilter := pipeApi.NewParallelFilter(&saveMetadataWorker)
+	saveMetadataFilter := pipeApi.NewBoundedParallelFilter(45, &saveMetadataWorker)
 
 	base64Encoder := Base64EncodeWorker{}
 	base64EncoderFilter := pipeApi.NewParallelFilter(&base64Encoder)

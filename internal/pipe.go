@@ -23,7 +23,7 @@ type Filter interface {
 	GetStat() FilterExecutionStat
 }
 
-// SerialFilter filters a single item at a time
+// SerialFilter filters a single item at a time as they come
 type SerialFilter struct {
 
 	workers []Worker
@@ -159,6 +159,7 @@ func (f *ParallelFilter) GetStat() FilterExecutionStat {
 	return f.stat
 }
 
+// BoundedParallelFilter can filter up to N items at a time
 type BoundedParallelFilter struct {
 
 	sem chan struct{} // Semaphore implementation
@@ -231,6 +232,76 @@ func (f *BoundedParallelFilter) pipe(ctx context.Context, in Item, index int) (I
 }
 
 func (f *BoundedParallelFilter) GetStat() FilterExecutionStat {
+
+	return f.stat
+}
+
+// IndependentSerialFilter filters one item at a time and sends it only when it filtered all of them.
+type IndependentSerialFilter struct {
+
+	workers []Worker
+	stat FilterExecutionStat
+}
+
+func NewIndependentSerialFilter(workers ...Worker) *IndependentSerialFilter {
+
+	var filterName string
+	for i, worker := range workers {
+		if i == len(workers) - 1 {
+			filterName += fmt.Sprintf("%T", worker)
+		} else {
+			filterName += fmt.Sprintf("%T,", worker)
+		}
+	}
+	return &IndependentSerialFilter{workers, FilterExecutionStat{
+		FilterName: filterName,
+		FilterType: "IndependentSerialFilter"}}
+}
+
+func (f*IndependentSerialFilter) Filter(ctx context.Context, in <-chan Item, errors chan<- error) <-chan Item {
+
+	items := make(chan Item)
+	var itemsBuffer []Item
+	go func() {
+		startedTotal := time.Now()
+		for nInterface := range in {
+			atomic.AddUint64(&f.stat.NumberOfItems, 1)
+			started := time.Now()
+			item, err := f.pipe(ctx, nInterface, 0)
+			f.stat.TotalWork += time.Since(started)
+			started = time.Now()
+			if err != nil {
+				errors <- err
+			} else {
+				// don't write it right away
+				itemsBuffer = append(itemsBuffer, item)
+			}
+			f.stat.TotalWaiting += time.Since(started)
+		}
+		for _, item := range itemsBuffer {
+			items <- item
+		}
+		close(items)
+		f.stat.TotalDuration += time.Since(startedTotal)
+	}()
+	return items
+}
+
+func (f *IndependentSerialFilter) pipe(ctx context.Context, in Item, index int) (Item, error) {
+
+	out, err := f.workers[index].Work(ctx, in)
+	if err != nil {
+		return nil, err
+	}
+
+	if index == len(f.workers) - 1 {
+		return out, nil
+	}
+
+	return f.pipe(ctx, out, index + 1)
+}
+
+func (f *IndependentSerialFilter) GetStat() FilterExecutionStat {
 
 	return f.stat
 }
