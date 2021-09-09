@@ -12,3 +12,9 @@ Primena protočne obrade pri izradi veb servera aplikacije za upravljanje veliki
 ### Repozitorijum frontenda za go-pipelines - *gollery*
 
 Zaseban repozitorijum na linku: [https://github.com/ele7ija/gollery](https://github.com/ele7ija/gollery)
+
+### Demo 
+
+Dijalog za izbor fajlova nije vidljiv iz nekog razloga.
+
+![Demo](assets/demo.gif)
