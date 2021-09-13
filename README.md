@@ -17,4 +17,4 @@ Zaseban repozitorijum na linku: [https://github.com/ele7ija/gollery](https://git
 
 Dijalog za izbor fajlova nije vidljiv iz nekog razloga.
 
-![Demo](assets/demo.gif)
+![Demo](assets/demo-avi-2x.gif)
