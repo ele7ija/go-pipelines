@@ -22,15 +22,15 @@ Analizirati performanse protočne obrade podataka.
 
 Rad bi imao tri velika dela: (Izlistani su delovi i pojašnjen je njihov sadržaj)
 
-1. Teorijska osnova (recimo 10% sadrzaja)
+1. Uvod (recimo 10% sadrzaja)
 
     1. CSP i Go-ova podrška za CSP (objašnjenje koncepata poput kanala (chan <T>), read kanala (<-chan <T>) i write kanala (chan<- <T>))
     2. Šablon protočne obrade (šta je protočna obrada, šta je filter)
-2. Primena (50%)
+2. Primena protočne obrade (50%)
    1. Implementacija protočne obrade u Go-u
    
       Objašnjeni delovi koda iz paketa za protočnu obradu. Verifikacija uz pomoć Go jediničnih testova.
-   2. Definicija primera iz prakse
+   2. Primer iz prakse
 
       Digitalna galerija - jednostavna i performantna platforma na kojoj korisnik može da uploaduje veliki broj slika
       i potom da ih pregleda. Kako bi podržala veliki broj slika, pri implementaciji platforme je korišćen paket za protočnu obradu podataka.

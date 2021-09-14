@@ -2,10 +2,10 @@ package workers
 
 import (
 pipeApi "github.com/ele7ija/go-pipelines/internal"
+	"time"
 )
 
 func MakeGetImagePipeline(service ImageService) *pipeApi.Pipeline {
-
 	getMetadataWorker := GetMetadataWorker{service}
 	getMetadataFilter := pipeApi.NewParallelFilter(&getMetadataWorker)
 
@@ -19,7 +19,7 @@ func MakeGetImagePipeline(service ImageService) *pipeApi.Pipeline {
 	base64EncoderFilter := pipeApi.NewParallelFilter(&base64Encoder)
 
 	pipeline := pipeApi.NewPipeline("GetImagePipeline", getMetadataFilter, loadThumbnailFilter, loadFullFilter, base64EncoderFilter)
-	pipeline.StartExtracting()
+	pipeline.StartExtracting(5 * time.Second)
 	return pipeline
 }
 
@@ -32,7 +32,7 @@ func MakeGetAllImagesPipeline(service ImageService) *pipeApi.Pipeline {
 	base64EncoderFilter := pipeApi.NewParallelFilter(&base64Encoder)
 
 	pipeline := pipeApi.NewPipeline("GetAllImagesPipeline", loadThumbnailFilter, base64EncoderFilter)
-	pipeline.StartExtracting()
+	pipeline.StartExtracting(5 * time.Second)
 	return pipeline
 }
 
@@ -54,5 +54,6 @@ func MakeCreateImagesPipeline(service ImageService) *pipeApi.Pipeline {
 	base64EncoderFilter := pipeApi.NewParallelFilter(&base64Encoder)
 
 	pipeline := pipeApi.NewPipeline("CreateImagesPipeline", transformFHFilter, createThumbnailFilter, persistFilter, saveMetadataFilter, base64EncoderFilter)
+	pipeline.StartExtracting(5 * time.Second)
 	return pipeline
 }
