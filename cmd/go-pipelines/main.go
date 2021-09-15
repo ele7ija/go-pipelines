@@ -5,8 +5,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	pipeApi "github.com/ele7ija/go-pipelines/internal"
 	"github.com/ele7ija/go-pipelines/workers"
+	pipe "github.com/ele7ija/pipeline"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	_ "github.com/lib/pq"
@@ -30,7 +30,7 @@ const (
 func main() {
 
 	log.SetFormatter(&log.TextFormatter{
-		FullTimestamp: true,
+		FullTimestamp:   true,
 		TimestampFormat: "15:04:05.999",
 	})
 	log.SetLevel(log.DebugLevel)
@@ -110,7 +110,7 @@ func createImages(db *sql.DB) func(w http.ResponseWriter, r *http.Request) {
 		fhs := r.MultipartForm.File["images"]
 
 		// asynchronously add starting items
-		startingItems := make(chan pipeApi.Item, len(fhs))
+		startingItems := make(chan pipe.Item, len(fhs))
 		go func() {
 			wg := sync.WaitGroup{}
 			wg.Add(len(fhs))
@@ -153,7 +153,6 @@ func createImages(db *sql.DB) func(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-
 func getAllImages(db *sql.DB) func(w http.ResponseWriter, r *http.Request) {
 
 	imagesService := workers.NewImageService(db)
@@ -175,7 +174,7 @@ func getAllImages(db *sql.DB) func(w http.ResponseWriter, r *http.Request) {
 		}()
 
 		// Add starting items and filter them -> we use an unbuffered channel because we don't know how many there are
-		startingItems := make(chan pipeApi.Item)
+		startingItems := make(chan pipe.Item)
 		pipelineErrors := make(chan error)
 		items := pipeline.Filter(r.Context(), startingItems, pipelineErrors)
 
@@ -228,7 +227,7 @@ func getImage(db *sql.DB) func(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		ch := make(chan pipeApi.Item, 1)
+		ch := make(chan pipe.Item, 1)
 		ch <- imageId
 		close(ch)
 		errors := make(chan error, 1)

@@ -1,7 +1,8 @@
 # go-pipelines
 
-Implementacija Pipe&Filter šablona (Šablon protočne obrade) u Go-u.
-Primena protočne obrade pri izradi veb servera aplikacije za upravljanje velikim brojem slika.
+Repozitorijum koji sadrži primenu paketa za protočnu obradu u Go-u. Paket se nalazi ovde: [github.com/ele7ija/pipeline](https://github.com/ele7ija/pipeline).
+
+U ovom repozitorijumu protočna obrada primenjena je na veb server aplikacije za upravljanje velikim brojem slika.
 
 [Nacrt diplomskog rada](NacrtDiplomskogRada.md)
 

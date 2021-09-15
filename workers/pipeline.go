@@ -1,59 +1,59 @@
 package workers
 
 import (
-pipeApi "github.com/ele7ija/go-pipelines/internal"
+	pipe "github.com/ele7ija/pipeline"
 	"time"
 )
 
-func MakeGetImagePipeline(service ImageService) *pipeApi.Pipeline {
+func MakeGetImagePipeline(service ImageService) *pipe.Pipeline {
 	getMetadataWorker := GetMetadataWorker{service}
-	getMetadataFilter := pipeApi.NewParallelFilter(&getMetadataWorker)
+	getMetadataFilter := pipe.NewParallelFilter(&getMetadataWorker)
 
 	loadThumbnailWorker := LoadThumbnailWorker{service}
-	loadThumbnailFilter := pipeApi.NewParallelFilter(&loadThumbnailWorker)
+	loadThumbnailFilter := pipe.NewParallelFilter(&loadThumbnailWorker)
 
 	loadFullWorker := LoadFullWorker{service}
-	loadFullFilter := pipeApi.NewParallelFilter(&loadFullWorker)
+	loadFullFilter := pipe.NewParallelFilter(&loadFullWorker)
 
 	base64Encoder := Base64EncodeWorker{}
-	base64EncoderFilter := pipeApi.NewParallelFilter(&base64Encoder)
+	base64EncoderFilter := pipe.NewParallelFilter(&base64Encoder)
 
-	pipeline := pipeApi.NewPipeline("GetImagePipeline", getMetadataFilter, loadThumbnailFilter, loadFullFilter, base64EncoderFilter)
+	pipeline := pipe.NewPipeline("GetImagePipeline", getMetadataFilter, loadThumbnailFilter, loadFullFilter, base64EncoderFilter)
 	pipeline.StartExtracting(5 * time.Second)
 	return pipeline
 }
 
-func MakeGetAllImagesPipeline(service ImageService) *pipeApi.Pipeline {
+func MakeGetAllImagesPipeline(service ImageService) *pipe.Pipeline {
 
 	loadThumbnailWorker := LoadThumbnailWorker{service}
-	loadThumbnailFilter := pipeApi.NewParallelFilter(&loadThumbnailWorker)
+	loadThumbnailFilter := pipe.NewParallelFilter(&loadThumbnailWorker)
 
 	base64Encoder := Base64EncodeWorker{}
-	base64EncoderFilter := pipeApi.NewParallelFilter(&base64Encoder)
+	base64EncoderFilter := pipe.NewParallelFilter(&base64Encoder)
 
-	pipeline := pipeApi.NewPipeline("GetAllImagesPipeline", loadThumbnailFilter, base64EncoderFilter)
+	pipeline := pipe.NewPipeline("GetAllImagesPipeline", loadThumbnailFilter, base64EncoderFilter)
 	pipeline.StartExtracting(5 * time.Second)
 	return pipeline
 }
 
-func MakeCreateImagesPipeline(service ImageService) *pipeApi.Pipeline {
+func MakeCreateImagesPipeline(service ImageService) *pipe.Pipeline {
 
 	transformFHWorker := TransformFileHeaderWorker{}
-	transformFHFilter := pipeApi.NewParallelFilter(&transformFHWorker)
+	transformFHFilter := pipe.NewParallelFilter(&transformFHWorker)
 
 	createThumbnailWorker := CreateThumbnailWorker{service}
-	createThumbnailFilter := pipeApi.NewBoundedParallelFilter(60, &createThumbnailWorker)
+	createThumbnailFilter := pipe.NewBoundedParallelFilter(60, &createThumbnailWorker)
 
 	persistWorker := PersistWorker{service}
-	persistFilter := pipeApi.NewBoundedParallelFilter(30, &persistWorker)
+	persistFilter := pipe.NewBoundedParallelFilter(30, &persistWorker)
 
 	saveMetadataWorker := SaveMetadataWorker{service}
-	saveMetadataFilter := pipeApi.NewBoundedParallelFilter(45, &saveMetadataWorker)
+	saveMetadataFilter := pipe.NewBoundedParallelFilter(45, &saveMetadataWorker)
 
 	base64Encoder := Base64EncodeWorker{}
-	base64EncoderFilter := pipeApi.NewParallelFilter(&base64Encoder)
+	base64EncoderFilter := pipe.NewParallelFilter(&base64Encoder)
 
-	pipeline := pipeApi.NewPipeline("CreateImagesPipeline", transformFHFilter, createThumbnailFilter, persistFilter, saveMetadataFilter, base64EncoderFilter)
+	pipeline := pipe.NewPipeline("CreateImagesPipeline", transformFHFilter, createThumbnailFilter, persistFilter, saveMetadataFilter, base64EncoderFilter)
 	pipeline.StartExtracting(5 * time.Second)
 	return pipeline
 }

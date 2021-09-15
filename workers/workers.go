@@ -3,7 +3,7 @@ package workers
 import (
 	"context"
 	"fmt"
-	pipeApi "github.com/ele7ija/go-pipelines/internal"
+	pipe "github.com/ele7ija/pipeline"
 	"image/jpeg"
 	"mime/multipart"
 )
@@ -13,7 +13,7 @@ type GetMetadataWorker struct {
 }
 
 // Work expects the input item to have one part - the id of the image
-func (worker *GetMetadataWorker) Work(ctx context.Context, in pipeApi.Item) (pipeApi.Item, error)  {
+func (worker *GetMetadataWorker) Work(ctx context.Context, in pipe.Item) (pipe.Item, error) {
 
 	var imageId int
 	var ok bool
@@ -38,7 +38,7 @@ type LoadThumbnailWorker struct {
 	ImageService
 }
 
-func (worker *LoadThumbnailWorker) Work(ctx context.Context, in pipeApi.Item) (out pipeApi.Item, err error)  {
+func (worker *LoadThumbnailWorker) Work(ctx context.Context, in pipe.Item) (out pipe.Item, err error) {
 
 	var img *Image
 	var ok bool
@@ -54,7 +54,7 @@ type LoadFullWorker struct {
 	ImageService
 }
 
-func (worker *LoadFullWorker) Work(ctx context.Context, in pipeApi.Item) (out pipeApi.Item, err error)  {
+func (worker *LoadFullWorker) Work(ctx context.Context, in pipe.Item) (out pipe.Item, err error) {
 
 	var img *Image
 	var ok bool
@@ -69,7 +69,7 @@ func (worker *LoadFullWorker) Work(ctx context.Context, in pipeApi.Item) (out pi
 type Base64EncodeWorker struct {
 }
 
-func (worker *Base64EncodeWorker) Work(ctx context.Context, in pipeApi.Item) (out pipeApi.Item, err error) {
+func (worker *Base64EncodeWorker) Work(ctx context.Context, in pipe.Item) (out pipe.Item, err error) {
 
 	var img *Image
 	var ok bool
@@ -85,7 +85,7 @@ type CreateThumbnailWorker struct {
 	ImageService
 }
 
-func (worker *CreateThumbnailWorker) Work(ctx context.Context, in pipeApi.Item) (out pipeApi.Item, err error)  {
+func (worker *CreateThumbnailWorker) Work(ctx context.Context, in pipe.Item) (out pipe.Item, err error) {
 
 	var img *Image
 	var ok bool
@@ -101,7 +101,7 @@ type PersistWorker struct {
 	ImageService
 }
 
-func (worker *PersistWorker) Work(ctx context.Context, in pipeApi.Item) (out pipeApi.Item, err error)  {
+func (worker *PersistWorker) Work(ctx context.Context, in pipe.Item) (out pipe.Item, err error) {
 
 	var img *Image
 	var ok bool
@@ -117,7 +117,7 @@ type SaveMetadataWorker struct {
 	ImageService
 }
 
-func (worker *SaveMetadataWorker) Work(ctx context.Context, in pipeApi.Item) (out pipeApi.Item, err error)  {
+func (worker *SaveMetadataWorker) Work(ctx context.Context, in pipe.Item) (out pipe.Item, err error) {
 
 	var img *Image
 	var ok bool
@@ -132,7 +132,7 @@ func (worker *SaveMetadataWorker) Work(ctx context.Context, in pipeApi.Item) (ou
 type RemoveFullImageWorker struct {
 }
 
-func (worker *RemoveFullImageWorker) Work(ctx context.Context, in pipeApi.Item) (out pipeApi.Item, err error)  {
+func (worker *RemoveFullImageWorker) Work(ctx context.Context, in pipe.Item) (out pipe.Item, err error) {
 
 	var img *Image
 	var ok bool
@@ -147,7 +147,7 @@ func (worker *RemoveFullImageWorker) Work(ctx context.Context, in pipeApi.Item) 
 type TransformFileHeaderWorker struct {
 }
 
-func (worker *TransformFileHeaderWorker) Work(ctx context.Context, in pipeApi.Item) (out pipeApi.Item, err error)  {
+func (worker *TransformFileHeaderWorker) Work(ctx context.Context, in pipe.Item) (out pipe.Item, err error) {
 
 	var fh *multipart.FileHeader
 	var ok bool

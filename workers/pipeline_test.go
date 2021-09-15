@@ -5,7 +5,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/DATA-DOG/go-sqlmock"
-	"github.com/ele7ija/go-pipelines/internal"
+	pipeline2 "github.com/ele7ija/pipeline"
 	"image"
 	"image/color"
 	"image/draw"
@@ -40,7 +40,7 @@ func TestGetImagePipeline(t *testing.T) {
 		service := NewImageService(db)
 		pipeline := MakeGetImagePipeline(service)
 
-		inputChan := make(chan internal.Item, 1)
+		inputChan := make(chan pipeline2.Item, 1)
 		errors := make(chan error, 1)
 		inputChan <- int(imageId)
 		close(inputChan)
@@ -76,7 +76,7 @@ func TestGetAllImagesPipeline(t *testing.T) {
 		pipeline := MakeGetAllImagesPipeline(service)
 
 		noItems := 5
-		inputChan := make(chan internal.Item, noItems)
+		inputChan := make(chan pipeline2.Item, noItems)
 		errors := make(chan error, noItems)
 		for i := 0; i < noItems; i++ {
 			img := Image{
@@ -123,7 +123,7 @@ func TestMakeCreateImagesPipeline(t *testing.T) {
 		pipeline := MakeCreateImagesPipeline(service)
 
 		noItems := 2
-		items := make(chan internal.Item, noItems)
+		items := make(chan pipeline2.Item, noItems)
 		errors := make(chan error, noItems)
 		//Prepare
 		fhs := prepareFileHeaders(noItems, t)
@@ -229,7 +229,6 @@ func sqDiffUInt32(x, y uint32) uint64 {
 	d := uint64(x) - uint64(y)
 	return d * d
 }
-
 
 func ImagesEqual(img1, img2 image.Image) (bool, error) {
 
