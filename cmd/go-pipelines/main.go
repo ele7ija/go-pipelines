@@ -12,6 +12,8 @@ import (
 	_ "github.com/lib/pq"
 	log "github.com/sirupsen/logrus"
 	metrics "github.com/tevjef/go-runtime-metrics"
+	"image/jpeg"
+	"mime/multipart"
 	"net/http"
 	"strconv"
 	"sync"
@@ -87,17 +89,230 @@ func imagesRouter(db *sql.DB) http.Handler {
 
 	r := chi.NewRouter()
 	r.Use(UserOnly)
-	r.Get("/", getAllImages(db))
+	//r.Get("/", getAllImages(db))
 	r.Get("/{imageId}", getImage(db))
 
 	r.Post("/", createImages(db))
 	return r
 }
 
+func createImagesSequential(db *sql.DB) func(w http.ResponseWriter, r *http.Request) {
+
+	imagesService := workers.NewImageService(db)
+	requestCounter := 0
+	var requestDuration time.Duration
+
+	return func(w http.ResponseWriter, r *http.Request) {
+
+		err := r.ParseMultipartForm(2 << 30) // 1GB
+		if err != nil {
+			log.Errorf("ParseMultiPartForm error: %s", err)
+			w.WriteHeader(400)
+			return
+		}
+		fhs := r.MultipartForm.File["images"]
+
+		w.Header().Set("Content-Type", "application/json")
+		counter := 0
+		w.Write([]byte("{\"images\": ["))
+		started := time.Now()
+		for _, fh := range fhs {
+
+			f, err := fh.Open()
+			if err != nil {
+				log.Errorf("error with fileheader: %s", err)
+			}
+			rawimg, err := jpeg.Decode(f)
+			if err != nil {
+				log.Errorf("error with jpeg decoding: %s", err)
+			}
+			img := workers.NewImage(fh.Filename, rawimg)
+			err = imagesService.CreateThumbnail(r.Context(), img)
+			if err != nil {
+				log.Errorf("error creating the thumbnail: %s", err)
+			}
+			err = imagesService.Persist(r.Context(), img)
+			if err != nil {
+				log.Errorf("error persisting the image: %s", err)
+			}
+			err = imagesService.SaveMetadata(r.Context(), img)
+			if err != nil {
+				log.Errorf("error saving metadata: %s", err)
+			}
+			img64 := workers.NewImageBase64(img)
+
+			log.Debugf("Sending image no: %d", counter)
+			counter++
+			err = json.NewEncoder(w).Encode(img64)
+			w.Write([]byte(","))
+		}
+
+		w.Write([]byte("\"void\"]}"))
+		requestCounter++
+		requestDuration += time.Since(started)
+		log.Infof("[sequential] An average request took: %d ms", requestDuration.Milliseconds()/int64(requestCounter))
+	}
+}
+
+func createImagesSequentialUnhandledErrors(db *sql.DB) func(w http.ResponseWriter, r *http.Request) {
+
+	imagesService := workers.NewImageService(db)
+	requestCounter := 0
+	var requestDuration time.Duration
+
+	return func(w http.ResponseWriter, r *http.Request) {
+
+		r.ParseMultipartForm(2 << 30) // 1GB
+		fhs := r.MultipartForm.File["images"]
+
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte("{\"images\": ["))
+
+		// Process each image sequentially and send it
+		started := time.Now()
+		for i, fh := range fhs {
+
+			f, _ := fh.Open()
+			rawimg, _ := jpeg.Decode(f)
+			img := workers.NewImage(fh.Filename, rawimg)
+			imagesService.CreateThumbnail(r.Context(), img)
+			imagesService.Persist(r.Context(), img)
+			imagesService.SaveMetadata(r.Context(), img)
+			img64 := workers.NewImageBase64(img)
+
+			json.NewEncoder(w).Encode(img64)
+			if i != len(fhs)-1 {
+				w.Write([]byte(","))
+			}
+		}
+
+		w.Write([]byte("]}"))
+		requestCounter++
+		requestDuration += time.Since(started)
+		log.Infof("[sequential] An average request took: %d ms", requestDuration.Milliseconds()/int64(requestCounter))
+	}
+}
+
+func createImagesConcurrent(db *sql.DB) func(w http.ResponseWriter, r *http.Request) {
+
+	imagesService := workers.NewImageService(db)
+	requestCounter := 0
+	var requestDuration time.Duration
+
+	return func(w http.ResponseWriter, r *http.Request) {
+
+		err := r.ParseMultipartForm(2 << 30) // 1GB
+		if err != nil {
+			log.Errorf("ParseMultiPartForm error: %s", err)
+			w.WriteHeader(400)
+			return
+		}
+		fhs := r.MultipartForm.File["images"]
+
+		w.Header().Set("Content-Type", "application/json")
+		counter := 0
+		w.Write([]byte("{\"images\": ["))
+		started := time.Now()
+		mu := sync.Mutex{}
+		wg := sync.WaitGroup{}
+		for _, fh := range fhs {
+			wg.Add(1)
+			go func(fh *multipart.FileHeader) {
+				defer wg.Done()
+				f, err := fh.Open()
+				if err != nil {
+					log.Errorf("error with fileheader: %s", err)
+				}
+				rawimg, err := jpeg.Decode(f)
+				if err != nil {
+					log.Errorf("error with jpeg decoding: %s", err)
+				}
+				img := workers.NewImage(fh.Filename, rawimg)
+				err = imagesService.CreateThumbnail(r.Context(), img)
+				if err != nil {
+					log.Errorf("error creating the thumbnail: %s", err)
+				}
+				err = imagesService.Persist(r.Context(), img)
+				if err != nil {
+					log.Errorf("error persisting the image: %s", err)
+				}
+				err = imagesService.SaveMetadata(r.Context(), img)
+				if err != nil {
+					log.Errorf("error saving metadata: %s", err)
+				}
+				img64 := workers.NewImageBase64(img)
+
+				log.Debugf("Sending image no: %d", counter)
+				counter++
+				mu.Lock()
+				err = json.NewEncoder(w).Encode(img64)
+				w.Write([]byte(","))
+				mu.Unlock()
+			}(fh)
+		}
+
+		wg.Wait()
+		w.Write([]byte("\"void\"]}"))
+		requestCounter++
+		requestDuration += time.Since(started)
+		log.Infof("[concurrent] An average request took: %d ms", requestDuration.Milliseconds()/int64(requestCounter))
+	}
+}
+
+func createImagesConcurrentUnhandledErrors(db *sql.DB) func(w http.ResponseWriter, r *http.Request) {
+
+	imagesService := workers.NewImageService(db)
+	requestCounter := 0
+	var requestDuration time.Duration
+
+	return func(w http.ResponseWriter, r *http.Request) {
+
+		r.ParseMultipartForm(2 << 30) // 1GB
+		fhs := r.MultipartForm.File["images"]
+
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte("{\"images\": ["))
+
+		// Process each image concurrently and send it
+		started := time.Now()
+		mu := sync.Mutex{}
+		wg := sync.WaitGroup{}
+		for _, fh := range fhs {
+			wg.Add(1)
+			go func(fh *multipart.FileHeader) {
+				defer wg.Done()
+				f, _ := fh.Open()
+				rawimg, _ := jpeg.Decode(f)
+				img := workers.NewImage(fh.Filename, rawimg)
+				imagesService.CreateThumbnail(r.Context(), img)
+				imagesService.Persist(r.Context(), img)
+				imagesService.SaveMetadata(r.Context(), img)
+				img64 := workers.NewImageBase64(img)
+
+				mu.Lock()
+				json.NewEncoder(w).Encode(img64)
+				w.Write([]byte(","))
+				mu.Unlock()
+			}(fh)
+		}
+
+		wg.Wait()
+		w.Write([]byte("\"void\"]}")) // quick fix to have proper JSON
+		requestCounter++
+		requestDuration += time.Since(started)
+		log.Infof("[concurrent] An average request took: %d ms", requestDuration.Milliseconds()/int64(requestCounter))
+	}
+}
+
 func createImages(db *sql.DB) func(w http.ResponseWriter, r *http.Request) {
 
 	imagesService := workers.NewImageService(db)
-	pipeline := workers.MakeCreateImagesPipeline(imagesService)
+	pipeline := workers.MakeCreateImagesPipelineBoundedFilters(imagesService)
+
+	return createImagesWithPipeline(pipeline)
+}
+
+func createImagesWithPipeline(pipeline *pipe.Pipeline) func(w http.ResponseWriter, r *http.Request) {
 
 	return func(w http.ResponseWriter, r *http.Request) {
 

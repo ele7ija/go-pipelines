@@ -36,24 +36,61 @@ func MakeGetAllImagesPipeline(service ImageService) *pipe.Pipeline {
 	return pipeline
 }
 
-func MakeCreateImagesPipeline(service ImageService) *pipe.Pipeline {
+func MakeCreateImagesPipelineBoundedFilters(service ImageService) *pipe.Pipeline {
+
+	transformFHWorker := TransformFileHeaderWorker{}
+	transformFHFilter := pipe.NewBoundedParallelFilter(30, &transformFHWorker)
+
+	createThumbnailWorker := CreateThumbnailWorker{service}
+	createThumbnailFilter := pipe.NewBoundedParallelFilter(35, &createThumbnailWorker)
+
+	persistWorker := PersistWorker{service}
+	persistFilter := pipe.NewBoundedParallelFilter(40, &persistWorker)
+
+	saveMetadataWorker := SaveMetadataWorker{service}
+	saveMetadataFilter := pipe.NewBoundedParallelFilter(10, &saveMetadataWorker)
+
+	base64Encoder := Base64EncodeWorker{}
+	base64EncoderFilter := pipe.NewBoundedParallelFilter(40, &base64Encoder)
+
+	pipeline := pipe.NewPipeline("CreateImagesPipelineBounded3035401040", transformFHFilter, createThumbnailFilter, persistFilter, saveMetadataFilter, base64EncoderFilter)
+	pipeline.StartExtracting(5 * time.Second)
+	return pipeline
+}
+
+func MakeCreateImagesPipeline1Transform1Filter(service ImageService) *pipe.Pipeline {
 
 	transformFHWorker := TransformFileHeaderWorker{}
 	transformFHFilter := pipe.NewParallelFilter(&transformFHWorker)
 
 	createThumbnailWorker := CreateThumbnailWorker{service}
-	createThumbnailFilter := pipe.NewBoundedParallelFilter(60, &createThumbnailWorker)
+	createThumbnailFilter := pipe.NewParallelFilter(&createThumbnailWorker)
 
 	persistWorker := PersistWorker{service}
-	persistFilter := pipe.NewBoundedParallelFilter(30, &persistWorker)
+	persistFilter := pipe.NewParallelFilter(&persistWorker)
 
 	saveMetadataWorker := SaveMetadataWorker{service}
-	saveMetadataFilter := pipe.NewBoundedParallelFilter(45, &saveMetadataWorker)
+	saveMetadataFilter := pipe.NewParallelFilter(&saveMetadataWorker)
 
 	base64Encoder := Base64EncodeWorker{}
 	base64EncoderFilter := pipe.NewParallelFilter(&base64Encoder)
 
-	pipeline := pipe.NewPipeline("CreateImagesPipeline", transformFHFilter, createThumbnailFilter, persistFilter, saveMetadataFilter, base64EncoderFilter)
+	pipeline := pipe.NewPipeline("CreateImagesPipeline1Transform1Filter", transformFHFilter, createThumbnailFilter, persistFilter, saveMetadataFilter, base64EncoderFilter)
+	pipeline.StartExtracting(5 * time.Second)
+	return pipeline
+}
+
+func MakeCreateImagesPipelineNTransform1Filter(service ImageService) *pipe.Pipeline {
+
+	transformFHWorker := TransformFileHeaderWorker{}
+	createThumbnailWorker := CreateThumbnailWorker{service}
+	persistWorker := PersistWorker{service}
+	saveMetadataWorker := SaveMetadataWorker{service}
+	base64Encoder := Base64EncodeWorker{}
+
+	filter := pipe.NewParallelFilter(&transformFHWorker, &createThumbnailWorker, &persistWorker, &saveMetadataWorker, &base64Encoder)
+
+	pipeline := pipe.NewPipeline("CreateImagesPipelineNTransform1Filter", filter)
 	pipeline.StartExtracting(5 * time.Second)
 	return pipeline
 }
