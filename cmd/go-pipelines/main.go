@@ -89,9 +89,8 @@ func imagesRouter(db *sql.DB) http.Handler {
 
 	r := chi.NewRouter()
 	r.Use(UserOnly)
-	//r.Get("/", getAllImages(db))
+	r.Get("/", getAllImages(db))
 	r.Get("/{imageId}", getImage(db))
-
 	r.Post("/", createImages(db))
 	return r
 }

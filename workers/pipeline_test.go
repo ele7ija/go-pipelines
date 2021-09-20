@@ -120,7 +120,7 @@ func TestMakeCreateImagesPipeline(t *testing.T) {
 		defer db.Close()
 
 		service := NewImageService(db)
-		pipeline := MakeCreateImagesPipeline(service)
+		pipeline := MakeCreateImagesPipelineBoundedFilters(service)
 
 		noItems := 2
 		items := make(chan pipeline2.Item, noItems)
