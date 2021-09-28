@@ -8,6 +8,8 @@ Take a look at `cmd/go-pipelines/main.go`
 
 A package which provides a framework to implement pipeline processing is here: [github.com/ele7ija/pipeline](https://github.com/ele7ija/pipeline).
 
+The project isn't deployed anywhere, but it is dead easy to run it on your local machine, take a look at links below.
+
 ## Links
 
 [Running the project (in serbian but usable)](Pokretanje.md)
