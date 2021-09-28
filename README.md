@@ -1,21 +1,21 @@
 # go-pipelines
 
-Repozitorijum koji sadrži primenu paketa za protočnu obradu u Go-u. Paket se nalazi ovde: [github.com/ele7ija/pipeline](https://github.com/ele7ija/pipeline).
+This repository contains a batch image management server.
 
-U ovom repozitorijumu protočna obrada primenjena je na veb server aplikacije za upravljanje velikim brojem slika.
+To make the server process the image as fast and efficient as possible, 
+a few different types of processing were introduced: _sequential_, _concurrent_ and _different pipeline processing_.
+Take a look at `cmd/go-pipelines/main.go`
 
-[Nacrt diplomskog rada](NacrtDiplomskogRada.md)
+A package which provides a framework to implement pipeline processing is here: [github.com/ele7ija/pipeline](https://github.com/ele7ija/pipeline).
 
-[Pokretanje projekta](Pokretanje.md)
+## Links
 
-[Rezultati](Rezultati.md)
+[Running the project (in serbian but usable)](Pokretanje.md)
 
-### Repozitorijum frontenda za go-pipelines - *gollery*
-
-Zaseban repozitorijum na linku: [https://github.com/ele7ija/gollery](https://github.com/ele7ija/gollery)
+[Frontend for the server](https://github.com/ele7ija/gollery)
 
 ### Demo 
 
-Dijalog za izbor fajlova nije vidljiv iz nekog razloga.
+_Disclaimer_: file selection window not visible for some reason.
 
 ![Demo](assets/demo-avi-2x.gif)
