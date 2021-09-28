@@ -12,7 +12,7 @@ The project isn't deployed anywhere, but it is dead easy to run it on your local
 
 ## Links
 
-[Running the project (in serbian but usable)](Pokretanje.md)
+[Running the project](Running.md)
 
 [Frontend for the server](https://github.com/ele7ija/gollery)
 
