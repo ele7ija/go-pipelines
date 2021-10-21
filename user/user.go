@@ -16,6 +16,7 @@ type User struct {
 
 type Service interface {
 	Login(ctx context.Context, user User) (jwt.JWT, error)
+	GetUser(ctx context.Context, receivedJwt jwt.JWT) (User, error)
 }
 
 type ServiceDefault struct {
