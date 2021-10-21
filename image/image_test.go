@@ -1,4 +1,4 @@
-package workers
+package image
 
 import (
 	"context"
@@ -285,8 +285,8 @@ func TestImageService_GetAllMetadata(t *testing.T) {
 	images := make([]*Image, 0)
 	for i := 0; i < noImages; i++ {
 		images = append(images, &Image{
-			Name: fmt.Sprintf("%s%d", testName, i),
-			FullPath: fmt.Sprintf("%s%d", testFullPath, i),
+			Name:          fmt.Sprintf("%s%d", testName, i),
+			FullPath:      fmt.Sprintf("%s%d", testFullPath, i),
 			ThumbnailPath: fmt.Sprintf("%s%d", testThumbnailPath, i),
 		})
 	}
@@ -376,11 +376,10 @@ func TestImageService_GetAllMetadata(t *testing.T) {
 
 		noFails := 3
 		imageRows := sqlmock.NewRows([]string{"id", "name", "fullpath", "thumbnailpath", "resolution_x", "resolution_y"})
-		for i := 0; i < noImages - noFails; i++ {
+		for i := 0; i < noImages-noFails; i++ {
 			imageRows.AddRow(i, images[i].Name, images[i].FullPath, images[i].ThumbnailPath, testResolutionX, testResolutionY)
 		}
 		mock.ExpectQuery("SELECT id, name, fullpath, thumbnailpath, resolution_x, resolution_y").WillReturnRows(imageRows)
-
 
 		service := NewImageService(db)
 		images, errors, err := service.GetAllMetadata(ctx)
@@ -443,9 +442,9 @@ func TestDivide(t *testing.T) {
 		ids := make([]int, numberOfIds)
 		divisions := divide(ids, groupSize)
 		for i, division := range divisions {
-			if i != len(divisions) - 1 && len(division) != groupSize {
+			if i != len(divisions)-1 && len(division) != groupSize {
 				t.Errorf("err")
-			} else if i == len(divisions) - 1 {
+			} else if i == len(divisions)-1 {
 				if int(math.Mod(float64(numberOfIds), float64(groupSize))) == 0 {
 					if len(division) != groupSize {
 						t.Errorf("err")
@@ -464,9 +463,9 @@ func TestDivide(t *testing.T) {
 		ids := make([]int, numberOfIds)
 		divisions := divide(ids, groupSize)
 		for i, division := range divisions {
-			if i != len(divisions) - 1 && len(division) != groupSize {
+			if i != len(divisions)-1 && len(division) != groupSize {
 				t.Errorf("err")
-			} else if i == len(divisions) - 1 {
+			} else if i == len(divisions)-1 {
 				fmt.Println(int(math.Mod(float64(numberOfIds), float64(groupSize))))
 				if int(math.Mod(float64(numberOfIds), float64(groupSize))) == 0 {
 					if len(division) != groupSize {
@@ -500,7 +499,7 @@ func OpenTestImage(t *testing.T) *Image {
 	}
 
 	return &Image{
-		Full:          imageData,
-		Thumbnail:     imageData,
+		Full:      imageData,
+		Thumbnail: imageData,
 	}
 }

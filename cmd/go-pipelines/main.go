@@ -2,10 +2,14 @@ package main
 
 import (
 	"context"
+	"crypto/sha1"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/ele7ija/go-pipelines/workers"
+	"github.com/ele7ija/go-pipelines/image"
+	"github.com/ele7ija/go-pipelines/user"
+	"github.com/ele7ija/go-pipelines/user/jwt"
 	pipe "github.com/ele7ija/pipeline"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -21,10 +25,10 @@ import (
 )
 
 const (
-	host         = "localhost"
-	port         = 5432
-	user         = "go-pipelines"
-	password     = "go-pipelines"
+	dbhost       = "localhost"
+	dbport       = 5432
+	dbuser       = "go-pipelines"
+	dbpassword   = "go-pipelines"
 	dbname       = "go-pipelines"
 	MaxOpenConns = 40
 )
@@ -47,7 +51,7 @@ func main() {
 
 	psqlInfo := fmt.Sprintf(
 		"host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
-		host, port, user, password, dbname)
+		dbhost, dbport, dbuser, dbpassword, dbname)
 	db, err := sql.Open("postgres", psqlInfo)
 	if err != nil {
 		panic(err)
@@ -62,6 +66,7 @@ func main() {
 	log.Info("Successfully connected to DB!")
 
 	r.Mount("/api/images", imagesRouter(db))
+	r.Mount("/api/login", userRouter(db))
 
 	fs := http.FileServer(http.Dir("static"))
 	r.Handle("/*", http.StripPrefix("", fs))
@@ -74,6 +79,7 @@ func main() {
 			Username:           "go-pipelines",
 			Password:           "go-pipelines",
 			CollectionInterval: time.Second,
+			BatchInterval:      time.Second * 15,
 		}
 		if err := metrics.RunCollector(conf); err != nil {
 			log.Errorf("An error happened while sending performance stats to InfluxDB: %s", err)
@@ -88,16 +94,24 @@ func main() {
 func imagesRouter(db *sql.DB) http.Handler {
 
 	r := chi.NewRouter()
-	r.Use(UserOnly)
+	r.Use(UserOnly(db))
 	r.Get("/", getAllImages(db))
 	r.Get("/{imageId}", getImage(db))
 	r.Post("/", createImages(db))
 	return r
 }
 
+func userRouter(db *sql.DB) http.Handler {
+
+	r := chi.NewRouter()
+
+	r.Post("/", login(db))
+	return r
+}
+
 func createImagesSequential(db *sql.DB) func(w http.ResponseWriter, r *http.Request) {
 
-	imagesService := workers.NewImageService(db)
+	imagesService := image.NewImageService(db)
 	requestCounter := 0
 	var requestDuration time.Duration
 
@@ -125,7 +139,7 @@ func createImagesSequential(db *sql.DB) func(w http.ResponseWriter, r *http.Requ
 			if err != nil {
 				log.Errorf("error with jpeg decoding: %s", err)
 			}
-			img := workers.NewImage(fh.Filename, rawimg)
+			img := image.NewImage(fh.Filename, rawimg)
 			err = imagesService.CreateThumbnail(r.Context(), img)
 			if err != nil {
 				log.Errorf("error creating the thumbnail: %s", err)
@@ -138,7 +152,7 @@ func createImagesSequential(db *sql.DB) func(w http.ResponseWriter, r *http.Requ
 			if err != nil {
 				log.Errorf("error saving metadata: %s", err)
 			}
-			img64 := workers.NewImageBase64(img)
+			img64 := image.NewImageBase64(img)
 
 			log.Debugf("Sending image no: %d", counter)
 			counter++
@@ -155,7 +169,7 @@ func createImagesSequential(db *sql.DB) func(w http.ResponseWriter, r *http.Requ
 
 func createImagesSequentialUnhandledErrors(db *sql.DB) func(w http.ResponseWriter, r *http.Request) {
 
-	imagesService := workers.NewImageService(db)
+	imagesService := image.NewImageService(db)
 	requestCounter := 0
 	var requestDuration time.Duration
 
@@ -173,11 +187,11 @@ func createImagesSequentialUnhandledErrors(db *sql.DB) func(w http.ResponseWrite
 
 			f, _ := fh.Open()
 			rawimg, _ := jpeg.Decode(f)
-			img := workers.NewImage(fh.Filename, rawimg)
+			img := image.NewImage(fh.Filename, rawimg)
 			imagesService.CreateThumbnail(r.Context(), img)
 			imagesService.Persist(r.Context(), img)
 			imagesService.SaveMetadata(r.Context(), img)
-			img64 := workers.NewImageBase64(img)
+			img64 := image.NewImageBase64(img)
 
 			json.NewEncoder(w).Encode(img64)
 			if i != len(fhs)-1 {
@@ -194,7 +208,7 @@ func createImagesSequentialUnhandledErrors(db *sql.DB) func(w http.ResponseWrite
 
 func createImagesConcurrent(db *sql.DB) func(w http.ResponseWriter, r *http.Request) {
 
-	imagesService := workers.NewImageService(db)
+	imagesService := image.NewImageService(db)
 	requestCounter := 0
 	var requestDuration time.Duration
 
@@ -226,7 +240,7 @@ func createImagesConcurrent(db *sql.DB) func(w http.ResponseWriter, r *http.Requ
 				if err != nil {
 					log.Errorf("error with jpeg decoding: %s", err)
 				}
-				img := workers.NewImage(fh.Filename, rawimg)
+				img := image.NewImage(fh.Filename, rawimg)
 				err = imagesService.CreateThumbnail(r.Context(), img)
 				if err != nil {
 					log.Errorf("error creating the thumbnail: %s", err)
@@ -239,7 +253,7 @@ func createImagesConcurrent(db *sql.DB) func(w http.ResponseWriter, r *http.Requ
 				if err != nil {
 					log.Errorf("error saving metadata: %s", err)
 				}
-				img64 := workers.NewImageBase64(img)
+				img64 := image.NewImageBase64(img)
 
 				log.Debugf("Sending image no: %d", counter)
 				counter++
@@ -260,7 +274,7 @@ func createImagesConcurrent(db *sql.DB) func(w http.ResponseWriter, r *http.Requ
 
 func createImagesConcurrentUnhandledErrors(db *sql.DB) func(w http.ResponseWriter, r *http.Request) {
 
-	imagesService := workers.NewImageService(db)
+	imagesService := image.NewImageService(db)
 	requestCounter := 0
 	var requestDuration time.Duration
 
@@ -282,11 +296,11 @@ func createImagesConcurrentUnhandledErrors(db *sql.DB) func(w http.ResponseWrite
 				defer wg.Done()
 				f, _ := fh.Open()
 				rawimg, _ := jpeg.Decode(f)
-				img := workers.NewImage(fh.Filename, rawimg)
+				img := image.NewImage(fh.Filename, rawimg)
 				imagesService.CreateThumbnail(r.Context(), img)
 				imagesService.Persist(r.Context(), img)
 				imagesService.SaveMetadata(r.Context(), img)
-				img64 := workers.NewImageBase64(img)
+				img64 := image.NewImageBase64(img)
 
 				mu.Lock()
 				json.NewEncoder(w).Encode(img64)
@@ -305,8 +319,8 @@ func createImagesConcurrentUnhandledErrors(db *sql.DB) func(w http.ResponseWrite
 
 func createImages(db *sql.DB) func(w http.ResponseWriter, r *http.Request) {
 
-	imagesService := workers.NewImageService(db)
-	pipeline := workers.MakeCreateImagesPipelineBoundedFilters(imagesService)
+	imagesService := image.NewImageService(db)
+	pipeline := image.MakeCreateImagesPipelineBoundedFilters(imagesService)
 
 	return createImagesWithPipeline(pipeline)
 }
@@ -326,13 +340,9 @@ func createImagesWithPipeline(pipeline *pipe.Pipeline) func(w http.ResponseWrite
 		// asynchronously add starting items
 		startingItems := make(chan pipe.Item, len(fhs))
 		go func() {
-			wg := sync.WaitGroup{}
-			wg.Add(len(fhs))
 			for _, fh := range fhs {
 				startingItems <- fh
-				wg.Done()
 			}
-			wg.Wait()
 			close(startingItems)
 		}()
 
@@ -352,7 +362,7 @@ func createImagesWithPipeline(pipeline *pipe.Pipeline) func(w http.ResponseWrite
 		for item := range items {
 			log.Debugf("Sending image no: %d", counter)
 			counter++
-			img := item.(*workers.ImageBase64)
+			img := item.(*image.ImageBase64)
 			err := json.NewEncoder(w).Encode(img)
 			if err != nil {
 				w.WriteHeader(500)
@@ -369,8 +379,8 @@ func createImagesWithPipeline(pipeline *pipe.Pipeline) func(w http.ResponseWrite
 
 func getAllImages(db *sql.DB) func(w http.ResponseWriter, r *http.Request) {
 
-	imagesService := workers.NewImageService(db)
-	pipeline := workers.MakeGetAllImagesPipeline(imagesService)
+	imagesService := image.NewImageService(db)
+	pipeline := image.MakeGetAllImagesPipeline(imagesService)
 
 	return func(w http.ResponseWriter, r *http.Request) {
 
@@ -411,7 +421,7 @@ func getAllImages(db *sql.DB) func(w http.ResponseWriter, r *http.Request) {
 		for item := range items {
 			log.Debugf("Sending image no: %d", counter)
 			counter++
-			img := item.(*workers.ImageBase64)
+			img := item.(*image.ImageBase64)
 			err := json.NewEncoder(w).Encode(img)
 			if err != nil {
 				w.WriteHeader(500)
@@ -429,8 +439,8 @@ func getAllImages(db *sql.DB) func(w http.ResponseWriter, r *http.Request) {
 
 func getImage(db *sql.DB) func(w http.ResponseWriter, r *http.Request) {
 
-	imagesService := workers.NewImageService(db)
-	pipeline := workers.MakeGetImagePipeline(imagesService)
+	imagesService := image.NewImageService(db)
+	pipeline := image.MakeGetImagePipeline(imagesService)
 
 	return func(w http.ResponseWriter, r *http.Request) {
 
@@ -455,7 +465,7 @@ func getImage(db *sql.DB) func(w http.ResponseWriter, r *http.Request) {
 
 		for item := range items {
 			w.Header().Set("Content-Type", "application/json")
-			if err := json.NewEncoder(w).Encode(item.(*workers.ImageBase64)); err != nil {
+			if err := json.NewEncoder(w).Encode(item.(*image.ImageBase64)); err != nil {
 				w.WriteHeader(500)
 			}
 		}
@@ -466,10 +476,88 @@ func getImage(db *sql.DB) func(w http.ResponseWriter, r *http.Request) {
 }
 
 // UserOnly inserts the userId into context from jwt
-func UserOnly(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// TODO check for jwt
-		ctx := context.WithValue(r.Context(), "userId", 1)
-		next.ServeHTTP(w, r.WithContext(ctx))
-	})
+func UserOnly(db *sql.DB) func(next http.Handler) http.Handler {
+
+	service := user.ServiceDefault{DB: db}
+
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+
+			c, err := r.Cookie("jwt")
+			if err != nil {
+				w.WriteHeader(403)
+				log.Errorf("no jwt")
+
+				return
+			}
+
+			u, err := service.GetUser(r.Context(), jwt.JWT(c.Value))
+			if err != nil {
+				w.WriteHeader(403)
+				log.Errorf("bad jwt")
+				return
+			}
+
+			ctx := context.WithValue(r.Context(), "userId", u.ID)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
+
+func login(db *sql.DB) func(w http.ResponseWriter, r *http.Request) {
+
+	service := user.ServiceDefault{DB: db}
+
+	return func(w http.ResponseWriter, r *http.Request) {
+
+		cookie, err := r.Cookie("jwt")
+		if err == nil {
+			u, err := service.GetUser(r.Context(), jwt.JWT(cookie.Value))
+			if err == nil {
+				w.WriteHeader(201)
+				log.Infof("user '%s' already logged in.", u.Username)
+				return
+			}
+		}
+
+		r.ParseMultipartForm(1 << 10)
+		username := r.Form.Get("username")
+		password := r.Form.Get("password")
+
+		if username == "" || password == "" {
+			log.Errorf("empty username or password")
+			w.WriteHeader(400)
+			return
+		}
+
+		password, err = encodeS256(password)
+		if err != nil {
+			log.Errorf("couldn't hash password")
+			w.WriteHeader(500)
+			return
+		}
+		createdJwt, err := service.Login(r.Context(), user.User{
+			Username: username,
+			Password: password,
+		})
+		if err != nil {
+			w.WriteHeader(400)
+			w.Write([]byte("login error"))
+			log.Errorf("login error: %s", err)
+			return
+		}
+		w.Header().Set("Set-Cookie", fmt.Sprintf("%s=%s; Max-Age=%d", "jwt", createdJwt, 60*60*2))
+		w.WriteHeader(200)
+		w.Write([]byte("succ login"))
+		log.Infof("Logged in user: %s", username)
+	}
+}
+
+func encodeS256(password string) (string, error) {
+	h := sha1.New()
+	_, err := h.Write([]byte(password))
+	if err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }

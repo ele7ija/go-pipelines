@@ -1,4 +1,4 @@
-package workers
+package image
 
 import (
 	pipe "github.com/ele7ija/pipeline"
@@ -54,7 +54,7 @@ func MakeCreateImagesPipelineBoundedFilters(service ImageService) *pipe.Pipeline
 	base64EncoderFilter := pipe.NewBoundedParallelFilter(40, &base64Encoder)
 
 	pipeline := pipe.NewPipeline("CreateImagesPipelineBounded3035401040", transformFHFilter, createThumbnailFilter, persistFilter, saveMetadataFilter, base64EncoderFilter)
-	pipeline.StartExtracting(5 * time.Second)
+	//pipeline.StartExtracting(5 * time.Second)
 	return pipeline
 }
 

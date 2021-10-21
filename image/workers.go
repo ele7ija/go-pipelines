@@ -1,4 +1,4 @@
-package workers
+package image
 
 import (
 	"context"

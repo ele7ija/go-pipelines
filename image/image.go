@@ -1,19 +1,19 @@
-package workers
+package image
 
 import (
-"bytes"
-"context"
-"database/sql"
-"encoding/base64"
-"fmt"
-"github.com/nfnt/resize"
-log "github.com/sirupsen/logrus"
-"image"
-"image/jpeg"
-"io/ioutil"
+	"bytes"
+	"context"
+	"database/sql"
+	"encoding/base64"
+	"fmt"
+	"github.com/nfnt/resize"
+	log "github.com/sirupsen/logrus"
+	"image"
+	"image/jpeg"
+	"io/ioutil"
 	"math"
 	"os"
-"sync"
+	"sync"
 )
 
 const (
@@ -22,31 +22,29 @@ const (
 )
 
 type Image struct {
-
-	Id int					`json:"id,omitempty"`
-	Name string				`json:"name"`
-	Full image.Image 		`json:"full,omitempty"`
-	FullPath string			`json:"fullPath"`
-	Resolution image.Point	`json:"resolution,omitempty"`
-	Thumbnail image.Image	`json:"thumbnail,omitempty"`
-	ThumbnailPath string	`json:"thumbnailPath"`
+	Id            int         `json:"id,omitempty"`
+	Name          string      `json:"name"`
+	Full          image.Image `json:"full,omitempty"`
+	FullPath      string      `json:"fullPath"`
+	Resolution    image.Point `json:"resolution,omitempty"`
+	Thumbnail     image.Image `json:"thumbnail,omitempty"`
+	ThumbnailPath string      `json:"thumbnailPath"`
 }
 
 type ImageBase64 struct {
-
-	Id int					`json:"id,omitempty"`
-	Name string				`json:"name"`
-	FullBase64 string		`json:"fullBase64,omitempty"`
-	FullPath string			`json:"fullPath"`
-	Resolution image.Point	`json:"resolution,omitempty"`
-	ThumbnailBase64 string	`json:"thumbnailBase64,omitempty"`
-	ThumbnailPath string	`json:"thumbnailPath"`
+	Id              int         `json:"id,omitempty"`
+	Name            string      `json:"name"`
+	FullBase64      string      `json:"fullBase64,omitempty"`
+	FullPath        string      `json:"fullPath"`
+	Resolution      image.Point `json:"resolution,omitempty"`
+	ThumbnailBase64 string      `json:"thumbnailBase64,omitempty"`
+	ThumbnailPath   string      `json:"thumbnailPath"`
 }
 
 func NewImage(name string, fullImage image.Image) *Image {
 	return &Image{
-		Name: name,
-		Full: fullImage,
+		Name:       name,
+		Full:       fullImage,
 		Resolution: fullImage.Bounds().Max,
 	}
 }
@@ -70,9 +68,9 @@ func NewImageBase64(img *Image) *ImageBase64 {
 	}
 
 	return &ImageBase64{
-		Id:				 img.Id,
+		Id:              img.Id,
 		Name:            img.Name,
-		FullBase64:		 fullBase64Encoding,
+		FullBase64:      fullBase64Encoding,
 		FullPath:        img.FullPath,
 		Resolution:      img.Resolution,
 		ThumbnailBase64: thumbBase64Encoding,
@@ -81,7 +79,6 @@ func NewImageBase64(img *Image) *ImageBase64 {
 }
 
 type ImageService interface {
-
 	CreateThumbnail(ctx context.Context, image *Image) error
 	Persist(ctx context.Context, image *Image) error
 	SaveMetadata(ctx context.Context, image *Image) error
@@ -92,8 +89,7 @@ type ImageService interface {
 }
 
 type ImageServiceImpl struct {
-
-	db  *sql.DB
+	db *sql.DB
 }
 
 func NewImageService(db *sql.DB) *ImageServiceImpl {
@@ -192,6 +188,11 @@ func (i *ImageServiceImpl) GetAllMetadata(ctx context.Context) (<-chan *Image, <
 
 	images := make(chan *Image, len(imageIds))
 	errors := make(chan error, len(imageIds))
+	if len(imageIds) == 0 {
+		close(images)
+		close(errors)
+		return images, errors, nil
+	}
 	wg := sync.WaitGroup{}
 
 	idGroups := divide(imageIds, 100)
@@ -231,10 +232,10 @@ func divide(ids []int, groupSize int) [][]int {
 	for index := 0; index < numGroups; index++ {
 		start := index * groupSize
 		var end int
-		if index == numGroups - 1 {
+		if index == numGroups-1 {
 			end = len(ids)
 		} else {
-			end = (index+1) * groupSize
+			end = (index + 1) * groupSize
 		}
 		retval = append(retval, ids[start:end])
 	}
@@ -246,7 +247,7 @@ func (i *ImageServiceImpl) GetMetadata(ctx context.Context, imageIds []int) ([]*
 	var str string
 	for i, imgId := range imageIds {
 		str += fmt.Sprintf("%d", imgId)
-		if i != len(imageIds) - 1 {
+		if i != len(imageIds)-1 {
 			str += ","
 		}
 	}
@@ -273,7 +274,7 @@ func (i *ImageServiceImpl) GetMetadata(ctx context.Context, imageIds []int) ([]*
 	return imgs, nil
 }
 
-func (i *ImageServiceImpl) LoadThumbnail(ctx context.Context, img *Image)  error {
+func (i *ImageServiceImpl) LoadThumbnail(ctx context.Context, img *Image) error {
 
 	if img.ThumbnailPath == "" {
 		return fmt.Errorf("thumbnail path does not exist")
@@ -298,7 +299,7 @@ func (i *ImageServiceImpl) LoadThumbnail(ctx context.Context, img *Image)  error
 	return nil
 }
 
-func (i *ImageServiceImpl) LoadFull(ctx context.Context, img *Image)  error {
+func (i *ImageServiceImpl) LoadFull(ctx context.Context, img *Image) error {
 
 	if img.FullPath == "" {
 		return fmt.Errorf("full image path does not exist")

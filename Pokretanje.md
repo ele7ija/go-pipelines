@@ -11,7 +11,7 @@ psql -U go-pipelines
 
 ```sql
 CREATE TABLE image (id serial PRIMARY KEY, name VARCHAR, fullpath VARCHAR, thumbnailpath VARCHAR, resolution_x INT, resolution_y INT);
-CREATE TABLE "user" (id serial PRIMARY KEY);
+CREATE TABLE "user" (id serial PRIMARY KEY, username VARCHAR, password VARCHAR); # sifra bojan
 CREATE TABLE user_images (user_id INT NOT NULL, image_id INT NOT NULL, PRIMARY KEY (user_id, image_id), FOREIGN KEY (user_id) REFERENCES "user"(id), FOREIGN KEY (image_id) REFERENCES image(id));
 ```
 
