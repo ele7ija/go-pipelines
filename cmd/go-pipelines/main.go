@@ -94,7 +94,7 @@ func main() {
 func imagesRouter(db *sql.DB) http.Handler {
 
 	r := chi.NewRouter()
-	r.Use(UserOnly(db))
+	r.Use(UserOnly(db), AdminOnly(db))
 	r.Get("/", getAllImages(db))
 	r.Get("/{imageId}", getImage(db))
 	r.Post("/", createImages(db))
@@ -475,9 +475,8 @@ func getImage(db *sql.DB) func(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// UserOnly inserts the userId into context from jwt
+// UserOnly does authentication. It puts userId and username into context.
 func UserOnly(db *sql.DB) func(next http.Handler) http.Handler {
-
 	service := user.ServiceDefault{DB: db}
 
 	return func(next http.Handler) http.Handler {
@@ -494,12 +493,41 @@ func UserOnly(db *sql.DB) func(next http.Handler) http.Handler {
 			u, err := service.GetUser(r.Context(), jwt.JWT(c.Value))
 			if err != nil {
 				w.WriteHeader(403)
-				log.Errorf("bad jwt")
+				log.Errorf("bad jwt: %s", err)
 				return
 			}
 
 			ctx := context.WithValue(r.Context(), "userId", u.ID)
+			ctx = context.WithValue(ctx, "username", u.Username)
 			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
+
+// AdminOnly allows the request only if the user is an admin
+func AdminOnly(db *sql.DB) func(next http.Handler) http.Handler {
+	service := user.ServiceDefault{DB: db}
+
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+
+			username := r.Context().Value("username").(string)
+			if username == "" {
+				w.WriteHeader(403)
+				w.Write([]byte("couldn't find a role"))
+				log.Errorf("couldn't find a role")
+				return
+			}
+
+			isAdmin, err := service.IsAdmin(r.Context(), username)
+			if err != nil || !isAdmin {
+				w.WriteHeader(403)
+				w.Write([]byte("not allowed"))
+				log.Warnf("user %s is not allowed to operate", username)
+				return
+			}
+			log.Infof("user %s is allowed to operate", username)
+			next.ServeHTTP(w, r)
 		})
 	}
 }

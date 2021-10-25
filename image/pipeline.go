@@ -19,7 +19,7 @@ func MakeGetImagePipeline(service ImageService) *pipe.Pipeline {
 	base64EncoderFilter := pipe.NewParallelFilter(&base64Encoder)
 
 	pipeline := pipe.NewPipeline("GetImagePipeline", getMetadataFilter, loadThumbnailFilter, loadFullFilter, base64EncoderFilter)
-	pipeline.StartExtracting(5 * time.Second)
+	//pipeline.StartExtracting(5 * time.Second)
 	return pipeline
 }
 
@@ -32,7 +32,7 @@ func MakeGetAllImagesPipeline(service ImageService) *pipe.Pipeline {
 	base64EncoderFilter := pipe.NewParallelFilter(&base64Encoder)
 
 	pipeline := pipe.NewPipeline("GetAllImagesPipeline", loadThumbnailFilter, base64EncoderFilter)
-	pipeline.StartExtracting(5 * time.Second)
+	//pipeline.StartExtracting(5 * time.Second)
 	return pipeline
 }
 

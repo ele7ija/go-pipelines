@@ -3,8 +3,11 @@ package user
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"github.com/ele7ija/go-pipelines/user/jwt"
+	"github.com/open-policy-agent/opa/rego"
+	log "github.com/sirupsen/logrus"
 	"time"
 )
 
@@ -12,6 +15,12 @@ type User struct {
 	ID       int    `json:"id"`
 	Username string `json:"username"`
 	Password string `json:"password"`
+}
+
+type JWTPayload struct {
+	Username string `json:"username"`
+	Iat      int64  `json:"iat"`
+	Exp      int64  `json:"exp"`
 }
 
 type Service interface {
@@ -35,7 +44,7 @@ func (s ServiceDefault) Login(ctx context.Context, user User) (jwt.JWT, error) {
 
 	iat := time.Now()
 	exp := time.Now().Add(time.Hour * 2)
-	payload := jwt.Payload{
+	payload := JWTPayload{
 		Username: user.Username,
 		Iat:      iat.Unix(),
 		Exp:      exp.Unix(),
@@ -47,9 +56,15 @@ func (s ServiceDefault) Login(ctx context.Context, user User) (jwt.JWT, error) {
 
 func (s ServiceDefault) GetUser(ctx context.Context, receivedJwt jwt.JWT) (User, error) {
 
-	b, p := jwt.VerifyJWT(receivedJwt)
+	b, pI := jwt.VerifyJWT(receivedJwt)
 	if !b {
 		return User{}, fmt.Errorf("couldn't verify JWT")
+	}
+
+	pb, _ := json.Marshal(pI)
+	var p JWTPayload
+	if err := json.Unmarshal(pb, &p); err != nil {
+		return User{}, fmt.Errorf("bad payload")
 	}
 	expiration := time.Unix(p.Exp, 0)
 	if expiration.Before(time.Now()) {
@@ -68,4 +83,32 @@ func (s ServiceDefault) GetUser(ctx context.Context, receivedJwt jwt.JWT) (User,
 		Username: p.Username,
 	}, nil
 
+}
+
+func (s ServiceDefault) IsAdmin(ctx context.Context, username string) (bool, error) {
+
+	path := "/home/bp/go/src/github.com/ele7ija/go-pipelines/user/rego"
+
+	query, err := rego.New(
+		rego.Query("data.rbac.authz.allow"),
+		rego.Load([]string{path}, nil),
+	).PrepareForEval(ctx)
+	if err != nil {
+		log.Errorf("bad Rego: %s", err)
+		return false, err
+	}
+
+	input := map[string]interface{}{
+		"username": username,
+	}
+
+	results, err := query.Eval(ctx, rego.EvalInput(input))
+	if err != nil {
+		log.Errorf("error evaluating policy: %s", err)
+		return false, err
+	}
+	if !results.Allowed() {
+		return false, nil
+	}
+	return true, nil
 }

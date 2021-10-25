@@ -13,13 +13,8 @@ const SECRET = "go-pipelines"
 
 type JWT string
 
-type Payload struct {
-	Username string `json:"username"`
-	Iat      int64  `json:"iat"`
-	Exp      int64  `json:"exp"`
-}
-
-func CreateJWT(payload Payload) JWT {
+// CreateJWT uses the payload you passed on to create a HS256-signed JWT
+func CreateJWT(payload interface{}) JWT {
 
 	var jwt strings.Builder
 
@@ -37,11 +32,13 @@ func CreateJWT(payload Payload) JWT {
 	return JWT(jwt.String())
 }
 
-func VerifyJWT(jwt JWT) (bool, Payload) {
+// VerifyJWT verifies the JWT and returns payload unmarshalled to an interface{}.
+// The interface{} needs to then be marshalled and unmarshalled again.
+func VerifyJWT(jwt JWT) (bool, interface{}) {
 
 	a := strings.Split(string(jwt), ".")
 	if len(a) != 2 {
-		return false, Payload{}
+		return false, nil
 	}
 
 	pb64, signature := a[0], a[1]
@@ -50,18 +47,18 @@ func VerifyJWT(jwt JWT) (bool, Payload) {
 	h.Write([]byte(pb64))
 	csignature := hex.EncodeToString(h.Sum(nil))
 	if csignature != signature {
-		return false, Payload{}
+		return false, nil
 	}
 
 	pb, err := base64.StdEncoding.DecodeString(pb64)
 	if err != nil {
-		return false, Payload{}
+		return false, nil
 	}
-	var payload Payload
-	err = json.Unmarshal(pb, &payload)
+	var p interface{}
+	err = json.Unmarshal(pb, &p)
 	if err != nil {
-		return false, Payload{}
+		return false, nil
 	}
 
-	return true, payload
+	return true, p
 }
