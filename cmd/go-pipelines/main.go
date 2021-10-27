@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/ele7ija/go-pipelines/image"
+	"github.com/ele7ija/go-pipelines/policy"
 	"github.com/ele7ija/go-pipelines/user"
 	"github.com/ele7ija/go-pipelines/user/jwt"
 	pipe "github.com/ele7ija/pipeline"
@@ -16,11 +17,8 @@ import (
 	_ "github.com/lib/pq"
 	log "github.com/sirupsen/logrus"
 	metrics "github.com/tevjef/go-runtime-metrics"
-	"image/jpeg"
-	"mime/multipart"
 	"net/http"
 	"strconv"
-	"sync"
 	"time"
 )
 
@@ -64,8 +62,9 @@ func main() {
 		panic(err)
 	}
 	log.Info("Successfully connected to DB!")
+	imageRequestsEngine := policy.NewImageRequestsEngine()
 
-	r.Mount("/api/images", imagesRouter(db))
+	r.Mount("/api/images", imagesRouter(db, imageRequestsEngine))
 	r.Mount("/api/login", userRouter(db))
 
 	fs := http.FileServer(http.Dir("static"))
@@ -91,13 +90,13 @@ func main() {
 	}
 }
 
-func imagesRouter(db *sql.DB) http.Handler {
+func imagesRouter(db *sql.DB, engine policy.ImageRequestsEngine) http.Handler {
 
 	r := chi.NewRouter()
 	r.Use(UserOnly(db), AdminOnly(db))
 	r.Get("/", getAllImages(db))
 	r.Get("/{imageId}", getImage(db))
-	r.Post("/", createImages(db))
+	r.Post("/", createImages(db, engine))
 	return r
 }
 
@@ -109,233 +108,41 @@ func userRouter(db *sql.DB) http.Handler {
 	return r
 }
 
-func createImagesSequential(db *sql.DB) func(w http.ResponseWriter, r *http.Request) {
-
-	imagesService := image.NewImageService(db)
-	requestCounter := 0
-	var requestDuration time.Duration
-
-	return func(w http.ResponseWriter, r *http.Request) {
-
-		err := r.ParseMultipartForm(2 << 30) // 1GB
-		if err != nil {
-			log.Errorf("ParseMultiPartForm error: %s", err)
-			w.WriteHeader(400)
-			return
-		}
-		fhs := r.MultipartForm.File["images"]
-
-		w.Header().Set("Content-Type", "application/json")
-		counter := 0
-		w.Write([]byte("{\"images\": ["))
-		started := time.Now()
-		for _, fh := range fhs {
-
-			f, err := fh.Open()
-			if err != nil {
-				log.Errorf("error with fileheader: %s", err)
-			}
-			rawimg, err := jpeg.Decode(f)
-			if err != nil {
-				log.Errorf("error with jpeg decoding: %s", err)
-			}
-			img := image.NewImage(fh.Filename, rawimg)
-			err = imagesService.CreateThumbnail(r.Context(), img)
-			if err != nil {
-				log.Errorf("error creating the thumbnail: %s", err)
-			}
-			err = imagesService.Persist(r.Context(), img)
-			if err != nil {
-				log.Errorf("error persisting the image: %s", err)
-			}
-			err = imagesService.SaveMetadata(r.Context(), img)
-			if err != nil {
-				log.Errorf("error saving metadata: %s", err)
-			}
-			img64 := image.NewImageBase64(img)
-
-			log.Debugf("Sending image no: %d", counter)
-			counter++
-			err = json.NewEncoder(w).Encode(img64)
-			w.Write([]byte(","))
-		}
-
-		w.Write([]byte("\"void\"]}"))
-		requestCounter++
-		requestDuration += time.Since(started)
-		log.Infof("[sequential] An average request took: %d ms", requestDuration.Milliseconds()/int64(requestCounter))
-	}
-}
-
-func createImagesSequentialUnhandledErrors(db *sql.DB) func(w http.ResponseWriter, r *http.Request) {
-
-	imagesService := image.NewImageService(db)
-	requestCounter := 0
-	var requestDuration time.Duration
-
-	return func(w http.ResponseWriter, r *http.Request) {
-
-		r.ParseMultipartForm(2 << 30) // 1GB
-		fhs := r.MultipartForm.File["images"]
-
-		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte("{\"images\": ["))
-
-		// Process each image sequentially and send it
-		started := time.Now()
-		for i, fh := range fhs {
-
-			f, _ := fh.Open()
-			rawimg, _ := jpeg.Decode(f)
-			img := image.NewImage(fh.Filename, rawimg)
-			imagesService.CreateThumbnail(r.Context(), img)
-			imagesService.Persist(r.Context(), img)
-			imagesService.SaveMetadata(r.Context(), img)
-			img64 := image.NewImageBase64(img)
-
-			json.NewEncoder(w).Encode(img64)
-			if i != len(fhs)-1 {
-				w.Write([]byte(","))
-			}
-		}
-
-		w.Write([]byte("]}"))
-		requestCounter++
-		requestDuration += time.Since(started)
-		log.Infof("[sequential] An average request took: %d ms", requestDuration.Milliseconds()/int64(requestCounter))
-	}
-}
-
-func createImagesConcurrent(db *sql.DB) func(w http.ResponseWriter, r *http.Request) {
-
-	imagesService := image.NewImageService(db)
-	requestCounter := 0
-	var requestDuration time.Duration
-
-	return func(w http.ResponseWriter, r *http.Request) {
-
-		err := r.ParseMultipartForm(2 << 30) // 1GB
-		if err != nil {
-			log.Errorf("ParseMultiPartForm error: %s", err)
-			w.WriteHeader(400)
-			return
-		}
-		fhs := r.MultipartForm.File["images"]
-
-		w.Header().Set("Content-Type", "application/json")
-		counter := 0
-		w.Write([]byte("{\"images\": ["))
-		started := time.Now()
-		mu := sync.Mutex{}
-		wg := sync.WaitGroup{}
-		for _, fh := range fhs {
-			wg.Add(1)
-			go func(fh *multipart.FileHeader) {
-				defer wg.Done()
-				f, err := fh.Open()
-				if err != nil {
-					log.Errorf("error with fileheader: %s", err)
-				}
-				rawimg, err := jpeg.Decode(f)
-				if err != nil {
-					log.Errorf("error with jpeg decoding: %s", err)
-				}
-				img := image.NewImage(fh.Filename, rawimg)
-				err = imagesService.CreateThumbnail(r.Context(), img)
-				if err != nil {
-					log.Errorf("error creating the thumbnail: %s", err)
-				}
-				err = imagesService.Persist(r.Context(), img)
-				if err != nil {
-					log.Errorf("error persisting the image: %s", err)
-				}
-				err = imagesService.SaveMetadata(r.Context(), img)
-				if err != nil {
-					log.Errorf("error saving metadata: %s", err)
-				}
-				img64 := image.NewImageBase64(img)
-
-				log.Debugf("Sending image no: %d", counter)
-				counter++
-				mu.Lock()
-				err = json.NewEncoder(w).Encode(img64)
-				w.Write([]byte(","))
-				mu.Unlock()
-			}(fh)
-		}
-
-		wg.Wait()
-		w.Write([]byte("\"void\"]}"))
-		requestCounter++
-		requestDuration += time.Since(started)
-		log.Infof("[concurrent] An average request took: %d ms", requestDuration.Milliseconds()/int64(requestCounter))
-	}
-}
-
-func createImagesConcurrentUnhandledErrors(db *sql.DB) func(w http.ResponseWriter, r *http.Request) {
-
-	imagesService := image.NewImageService(db)
-	requestCounter := 0
-	var requestDuration time.Duration
-
-	return func(w http.ResponseWriter, r *http.Request) {
-
-		r.ParseMultipartForm(2 << 30) // 1GB
-		fhs := r.MultipartForm.File["images"]
-
-		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte("{\"images\": ["))
-
-		// Process each image concurrently and send it
-		started := time.Now()
-		mu := sync.Mutex{}
-		wg := sync.WaitGroup{}
-		for _, fh := range fhs {
-			wg.Add(1)
-			go func(fh *multipart.FileHeader) {
-				defer wg.Done()
-				f, _ := fh.Open()
-				rawimg, _ := jpeg.Decode(f)
-				img := image.NewImage(fh.Filename, rawimg)
-				imagesService.CreateThumbnail(r.Context(), img)
-				imagesService.Persist(r.Context(), img)
-				imagesService.SaveMetadata(r.Context(), img)
-				img64 := image.NewImageBase64(img)
-
-				mu.Lock()
-				json.NewEncoder(w).Encode(img64)
-				w.Write([]byte(","))
-				mu.Unlock()
-			}(fh)
-		}
-
-		wg.Wait()
-		w.Write([]byte("\"void\"]}")) // quick fix to have proper JSON
-		requestCounter++
-		requestDuration += time.Since(started)
-		log.Infof("[concurrent] An average request took: %d ms", requestDuration.Milliseconds()/int64(requestCounter))
-	}
-}
-
-func createImages(db *sql.DB) func(w http.ResponseWriter, r *http.Request) {
+func createImages(db *sql.DB, engine policy.ImageRequestsEngine) func(w http.ResponseWriter, r *http.Request) {
 
 	imagesService := image.NewImageService(db)
 	pipeline := image.MakeCreateImagesPipelineBoundedFilters(imagesService)
 
-	return createImagesWithPipeline(pipeline)
+	return createImagesWithPipeline(pipeline, engine)
 }
 
-func createImagesWithPipeline(pipeline *pipe.Pipeline) func(w http.ResponseWriter, r *http.Request) {
+func createImagesWithPipeline(pipeline *pipe.Pipeline, engine policy.ImageRequestsEngine) func(w http.ResponseWriter, r *http.Request) {
 
 	return func(w http.ResponseWriter, r *http.Request) {
-
-		err := r.ParseMultipartForm(2 << 30) // 1GB
+		err := r.ParseMultipartForm(1 << 31) // 1GB
 		if err != nil {
 			log.Errorf("ParseMultiPartForm error: %s", err)
 			w.WriteHeader(400)
 			return
 		}
 		fhs := r.MultipartForm.File["images"]
+
+		if b, err := engine.IsAllowed(r.Context(), policy.ImageRequest{
+			Path:           r.URL.Path,
+			Header:         r.Header,
+			NumberOfImages: len(fhs),
+			SizeOfImages:   r.ContentLength,
+		}); b != true || err != nil {
+			w.WriteHeader(400)
+			w.Write([]byte("policy error"))
+			if err != nil {
+				log.Errorf("policy error happened: %s", err)
+			}
+			if b != true {
+				log.Warnf("policy decided false")
+			}
+			return
+		}
 
 		// asynchronously add starting items
 		startingItems := make(chan pipe.Item, len(fhs))
@@ -477,7 +284,7 @@ func getImage(db *sql.DB) func(w http.ResponseWriter, r *http.Request) {
 
 // UserOnly does authentication. It puts userId and username into context.
 func UserOnly(db *sql.DB) func(next http.Handler) http.Handler {
-	service := user.ServiceDefault{DB: db}
+	service := user.NewService(db)
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -506,7 +313,7 @@ func UserOnly(db *sql.DB) func(next http.Handler) http.Handler {
 
 // AdminOnly allows the request only if the user is an admin
 func AdminOnly(db *sql.DB) func(next http.Handler) http.Handler {
-	service := user.ServiceDefault{DB: db}
+	service := user.NewService(db)
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -534,7 +341,7 @@ func AdminOnly(db *sql.DB) func(next http.Handler) http.Handler {
 
 func login(db *sql.DB) func(w http.ResponseWriter, r *http.Request) {
 
-	service := user.ServiceDefault{DB: db}
+	service := user.NewService(db)
 
 	return func(w http.ResponseWriter, r *http.Request) {
 

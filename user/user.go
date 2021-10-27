@@ -26,14 +26,18 @@ type JWTPayload struct {
 type Service interface {
 	Login(ctx context.Context, user User) (jwt.JWT, error)
 	GetUser(ctx context.Context, receivedJwt jwt.JWT) (User, error)
+	IsAdmin(ctx context.Context, username string) (bool, error)
 }
 
-type ServiceDefault struct {
+func NewService(db *sql.DB) Service {
+	return service{DB: db}
+}
+
+type service struct {
 	DB *sql.DB
 }
 
-func (s ServiceDefault) Login(ctx context.Context, user User) (jwt.JWT, error) {
-
+func (s service) Login(ctx context.Context, user User) (jwt.JWT, error) {
 	// Check if user exists (auth)
 	row := s.DB.QueryRowContext(ctx, "SELECT id FROM \"user\" WHERE username = $1 AND password = $2", user.Username, user.Password)
 	var id int
@@ -54,7 +58,7 @@ func (s ServiceDefault) Login(ctx context.Context, user User) (jwt.JWT, error) {
 	return createdJwt, nil
 }
 
-func (s ServiceDefault) GetUser(ctx context.Context, receivedJwt jwt.JWT) (User, error) {
+func (s service) GetUser(ctx context.Context, receivedJwt jwt.JWT) (User, error) {
 
 	b, pI := jwt.VerifyJWT(receivedJwt)
 	if !b {
@@ -85,7 +89,7 @@ func (s ServiceDefault) GetUser(ctx context.Context, receivedJwt jwt.JWT) (User,
 
 }
 
-func (s ServiceDefault) IsAdmin(ctx context.Context, username string) (bool, error) {
+func (s service) IsAdmin(ctx context.Context, username string) (bool, error) {
 
 	path := "/home/bp/go/src/github.com/ele7ija/go-pipelines/user/rego"
 
