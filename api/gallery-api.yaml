@@ -29,3 +29,26 @@ paths:
       responses:
         200:
           description: JSON of the image including the thubmnail as well as full image
+  /login:
+    post:
+      parameters:
+        - name: username
+          type: string
+          required: true
+          in: formData
+        - name: password
+          type: string
+          required: true
+          in: formData
+      summary: Logins the user
+      responses:
+        200:
+          description: OK
+          headers:
+            Set-Cookie:
+              type: string
+              description: JWT
+        201:
+          description: Valid JWT already present
+        400:
+          description: Bad request
