@@ -88,22 +88,22 @@ type ImageService interface {
 	LoadFull(ctx context.Context, img *Image) error
 }
 
-type ImageServiceImpl struct {
+func NewImageService(db *sql.DB) *imageService {
+
+	return &imageService{db}
+}
+
+type imageService struct {
 	db *sql.DB
 }
 
-func NewImageService(db *sql.DB) *ImageServiceImpl {
-
-	return &ImageServiceImpl{db}
-}
-
-func (i *ImageServiceImpl) CreateThumbnail(ctx context.Context, image *Image) error {
+func (i *imageService) CreateThumbnail(ctx context.Context, image *Image) error {
 
 	image.Thumbnail = resize.Resize(ThumbnailWidth, ThumbnailHeight, image.Full, resize.Lanczos3)
 	return nil
 }
 
-func (i *ImageServiceImpl) Persist(ctx context.Context, image *Image) error {
+func (i *imageService) Persist(ctx context.Context, image *Image) error {
 
 	// Save full image
 	fullImageFile, err := ioutil.TempFile(os.TempDir(), "pipelineImg*.jpg")
@@ -134,7 +134,7 @@ func (i *ImageServiceImpl) Persist(ctx context.Context, image *Image) error {
 	return nil
 }
 
-func (i *ImageServiceImpl) SaveMetadata(ctx context.Context, image *Image) (err error) {
+func (i *imageService) SaveMetadata(ctx context.Context, image *Image) (err error) {
 
 	tx, err := i.db.Begin()
 	if err != nil {
@@ -165,7 +165,7 @@ func (i *ImageServiceImpl) SaveMetadata(ctx context.Context, image *Image) (err 
 	return
 }
 
-func (i *ImageServiceImpl) GetAllMetadata(ctx context.Context) (<-chan *Image, <-chan error, error) {
+func (i *imageService) GetAllMetadata(ctx context.Context) (<-chan *Image, <-chan error, error) {
 
 	userId := ctx.Value("userId").(int)
 	rows, err := i.db.QueryContext(ctx, "SELECT image_id FROM user_images WHERE user_id = $1", userId)
@@ -242,7 +242,7 @@ func divide(ids []int, groupSize int) [][]int {
 	return retval
 }
 
-func (i *ImageServiceImpl) GetMetadata(ctx context.Context, imageIds []int) ([]*Image, error) {
+func (i *imageService) GetMetadata(ctx context.Context, imageIds []int) ([]*Image, error) {
 
 	var str string
 	for i, imgId := range imageIds {
@@ -274,7 +274,7 @@ func (i *ImageServiceImpl) GetMetadata(ctx context.Context, imageIds []int) ([]*
 	return imgs, nil
 }
 
-func (i *ImageServiceImpl) LoadThumbnail(ctx context.Context, img *Image) error {
+func (i *imageService) LoadThumbnail(ctx context.Context, img *Image) error {
 
 	if img.ThumbnailPath == "" {
 		return fmt.Errorf("thumbnail path does not exist")
@@ -299,7 +299,7 @@ func (i *ImageServiceImpl) LoadThumbnail(ctx context.Context, img *Image) error 
 	return nil
 }
 
-func (i *ImageServiceImpl) LoadFull(ctx context.Context, img *Image) error {
+func (i *imageService) LoadFull(ctx context.Context, img *Image) error {
 
 	if img.FullPath == "" {
 		return fmt.Errorf("full image path does not exist")
