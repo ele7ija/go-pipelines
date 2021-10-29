@@ -30,16 +30,16 @@ type Service interface {
 }
 
 func NewService(db *sql.DB) Service {
-	return service{DB: db}
+	return service{db: db}
 }
 
 type service struct {
-	DB *sql.DB
+	db *sql.DB
 }
 
 func (s service) Login(ctx context.Context, user User) (jwt.JWT, error) {
 	// Check if user exists (auth)
-	row := s.DB.QueryRowContext(ctx, "SELECT id FROM \"user\" WHERE username = $1 AND password = $2", user.Username, user.Password)
+	row := s.db.QueryRowContext(ctx, "SELECT id FROM \"user\" WHERE username = $1 AND password = $2", user.Username, user.Password)
 	var id int
 	err := row.Scan(&id)
 	if err != nil {
@@ -75,7 +75,7 @@ func (s service) GetUser(ctx context.Context, receivedJwt jwt.JWT) (User, error)
 		return User{}, fmt.Errorf("jwt expired")
 	}
 
-	row := s.DB.QueryRowContext(ctx, "SELECT id FROM \"user\" WHERE username = $1", p.Username)
+	row := s.db.QueryRowContext(ctx, "SELECT id FROM \"user\" WHERE username = $1", p.Username)
 	var id int
 	err := row.Scan(&id)
 	if err != nil {

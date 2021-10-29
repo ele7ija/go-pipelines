@@ -40,11 +40,10 @@ func main() {
 	log.SetLevel(log.DebugLevel)
 
 	r := chi.NewRouter()
-
 	r.Use(middleware.RequestID)
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
-	r.Use(middleware.Timeout(600 * time.Second))
+	r.Use(middleware.Timeout(60 * time.Second))
 	r.Use(middleware.SetHeader("Access-Control-Allow-Origin", "*"))
 
 	psqlInfo := fmt.Sprintf(
@@ -103,9 +102,114 @@ func imagesRouter(db *sql.DB, engine policy.ImageRequestsEngine) http.Handler {
 func userRouter(db *sql.DB) http.Handler {
 
 	r := chi.NewRouter()
-
 	r.Post("/", login(db))
 	return r
+}
+
+// UserOnly does authentication. It puts userId and username into context.
+func UserOnly(db *sql.DB) func(next http.Handler) http.Handler {
+	service := user.NewService(db)
+
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+
+			c, err := r.Cookie("jwt")
+			if err != nil {
+				w.WriteHeader(403)
+				log.Errorf("no jwt")
+
+				return
+			}
+
+			u, err := service.GetUser(r.Context(), jwt.JWT(c.Value))
+			if err != nil {
+				w.WriteHeader(403)
+				log.Errorf("bad jwt: %s", err)
+				return
+			}
+
+			ctx := context.WithValue(r.Context(), "userId", u.ID)
+			ctx = context.WithValue(ctx, "username", u.Username)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
+
+// AdminOnly allows the request only if the user is an admin
+func AdminOnly(db *sql.DB) func(next http.Handler) http.Handler {
+	service := user.NewService(db)
+
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+
+			username := r.Context().Value("username").(string)
+			if username == "" {
+				w.WriteHeader(403)
+				w.Write([]byte("couldn't find a role"))
+				log.Errorf("couldn't find a role")
+				return
+			}
+
+			isAdmin, err := service.IsAdmin(r.Context(), username)
+			if err != nil || !isAdmin {
+				w.WriteHeader(403)
+				w.Write([]byte("not allowed"))
+				log.Warnf("user %s is not allowed to operate", username)
+				return
+			}
+			log.Infof("user %s is allowed to operate", username)
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+func login(db *sql.DB) func(w http.ResponseWriter, r *http.Request) {
+
+	service := user.NewService(db)
+
+	return func(w http.ResponseWriter, r *http.Request) {
+
+		cookie, err := r.Cookie("jwt")
+		if err == nil {
+			u, err := service.GetUser(r.Context(), jwt.JWT(cookie.Value))
+			if err == nil {
+				w.WriteHeader(201)
+				log.Infof("user '%s' already logged in.", u.Username)
+				return
+			}
+		}
+
+		r.ParseMultipartForm(1 << 10)
+		username := r.Form.Get("username")
+		password := r.Form.Get("password")
+
+		if username == "" || password == "" {
+			log.Errorf("empty username or password")
+			w.WriteHeader(400)
+			return
+		}
+
+		password, err = encodeS256(password)
+		if err != nil {
+			log.Errorf("couldn't hash password")
+			w.WriteHeader(500)
+			return
+		}
+		createdJwt, err := service.Login(r.Context(), user.User{
+			Username: username,
+			Password: password,
+		})
+		if err != nil {
+			w.WriteHeader(400)
+			w.Write([]byte("login error"))
+			log.Errorf("login error: %s", err)
+			return
+		}
+		w.Header().Set("Set-Cookie", fmt.Sprintf("%s=%s; Max-Age=%d", "jwt", createdJwt, 60*60*2))
+		w.WriteHeader(200)
+		w.Write([]byte("succ login"))
+		log.Infof("Logged in user: %s", username)
+	}
 }
 
 func createImages(db *sql.DB, engine policy.ImageRequestsEngine) func(w http.ResponseWriter, r *http.Request) {
@@ -279,112 +383,6 @@ func getImage(db *sql.DB) func(w http.ResponseWriter, r *http.Request) {
 		pipeline.FilteringNumber++
 		pipeline.FilteringDuration += time.Since(started)
 		close(errors)
-	}
-}
-
-// UserOnly does authentication. It puts userId and username into context.
-func UserOnly(db *sql.DB) func(next http.Handler) http.Handler {
-	service := user.NewService(db)
-
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-
-			c, err := r.Cookie("jwt")
-			if err != nil {
-				w.WriteHeader(403)
-				log.Errorf("no jwt")
-
-				return
-			}
-
-			u, err := service.GetUser(r.Context(), jwt.JWT(c.Value))
-			if err != nil {
-				w.WriteHeader(403)
-				log.Errorf("bad jwt: %s", err)
-				return
-			}
-
-			ctx := context.WithValue(r.Context(), "userId", u.ID)
-			ctx = context.WithValue(ctx, "username", u.Username)
-			next.ServeHTTP(w, r.WithContext(ctx))
-		})
-	}
-}
-
-// AdminOnly allows the request only if the user is an admin
-func AdminOnly(db *sql.DB) func(next http.Handler) http.Handler {
-	service := user.NewService(db)
-
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-
-			username := r.Context().Value("username").(string)
-			if username == "" {
-				w.WriteHeader(403)
-				w.Write([]byte("couldn't find a role"))
-				log.Errorf("couldn't find a role")
-				return
-			}
-
-			isAdmin, err := service.IsAdmin(r.Context(), username)
-			if err != nil || !isAdmin {
-				w.WriteHeader(403)
-				w.Write([]byte("not allowed"))
-				log.Warnf("user %s is not allowed to operate", username)
-				return
-			}
-			log.Infof("user %s is allowed to operate", username)
-			next.ServeHTTP(w, r)
-		})
-	}
-}
-
-func login(db *sql.DB) func(w http.ResponseWriter, r *http.Request) {
-
-	service := user.NewService(db)
-
-	return func(w http.ResponseWriter, r *http.Request) {
-
-		cookie, err := r.Cookie("jwt")
-		if err == nil {
-			u, err := service.GetUser(r.Context(), jwt.JWT(cookie.Value))
-			if err == nil {
-				w.WriteHeader(201)
-				log.Infof("user '%s' already logged in.", u.Username)
-				return
-			}
-		}
-
-		r.ParseMultipartForm(1 << 10)
-		username := r.Form.Get("username")
-		password := r.Form.Get("password")
-
-		if username == "" || password == "" {
-			log.Errorf("empty username or password")
-			w.WriteHeader(400)
-			return
-		}
-
-		password, err = encodeS256(password)
-		if err != nil {
-			log.Errorf("couldn't hash password")
-			w.WriteHeader(500)
-			return
-		}
-		createdJwt, err := service.Login(r.Context(), user.User{
-			Username: username,
-			Password: password,
-		})
-		if err != nil {
-			w.WriteHeader(400)
-			w.Write([]byte("login error"))
-			log.Errorf("login error: %s", err)
-			return
-		}
-		w.Header().Set("Set-Cookie", fmt.Sprintf("%s=%s; Max-Age=%d", "jwt", createdJwt, 60*60*2))
-		w.WriteHeader(200)
-		w.Write([]byte("succ login"))
-		log.Infof("Logged in user: %s", username)
 	}
 }
 
