@@ -2,8 +2,8 @@ package load.image_requests
 
 default allow = false
 
-MAX_NUMBER  = 100
-MAX_SIZE    = 100000000 # 100 MB
+MAX_NUMBER  = 5
+MAX_SIZE    = 10000000 # 10 MB
 
 allow {
     number_less

@@ -92,10 +92,10 @@ func main() {
 func imagesRouter(db *sql.DB, engine policy.ImageRequestsEngine) http.Handler {
 
 	r := chi.NewRouter()
-	r.Use(UserOnly(db), AdminOnly(db))
+	r.Use(UserOnly(db), AdminOnly(db), ParseForm, CheckImagePolicy(engine))
 	r.Get("/", getAllImages(db))
 	r.Get("/{imageId}", getImage(db))
-	r.Post("/", createImages(db, engine))
+	r.Post("/", createImages(db))
 	return r
 }
 
@@ -163,6 +163,58 @@ func AdminOnly(db *sql.DB) func(next http.Handler) http.Handler {
 	}
 }
 
+// ParseForm does the form parsing for POST requests
+func ParseForm(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			next.ServeHTTP(w, r)
+			return
+		}
+		err := r.ParseMultipartForm(1 << 30) // 1GB
+		if err != nil {
+			log.Errorf("form error: %s", err)
+			w.WriteHeader(400)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// CheckImagePolicy checks whether image-related request is okay
+// One example check is whether the maximum number of images is violated
+func CheckImagePolicy(engine policy.ImageRequestsEngine) func(next http.Handler) http.Handler {
+
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			imageRequest := policy.ImageRequest{
+				Path:   r.URL.Path,
+				Method: r.Method,
+				Header: r.Header,
+			}
+			if r.Method == http.MethodPost {
+				imageRequest.SizeOfImages = r.ContentLength
+			}
+			if r.MultipartForm != nil {
+				fhs := r.MultipartForm.File["images"]
+				imageRequest.NumberOfImages = len(fhs)
+			}
+			b, err := engine.IsAllowed(r.Context(), imageRequest)
+			if b != true || err != nil {
+				w.WriteHeader(403)
+				w.Write([]byte("not allowed"))
+				if err != nil {
+					log.Errorf("policy error happened: %s", err)
+				}
+				if b != true {
+					log.Warnf("policy decided false")
+				}
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 func login(db *sql.DB) func(w http.ResponseWriter, r *http.Request) {
 
 	service := user.NewService(db)
@@ -212,43 +264,19 @@ func login(db *sql.DB) func(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func createImages(db *sql.DB, engine policy.ImageRequestsEngine) func(w http.ResponseWriter, r *http.Request) {
+func createImages(db *sql.DB) func(w http.ResponseWriter, r *http.Request) {
 
 	imagesService := image.NewImageService(db)
 	pipeline := image.MakeCreateImagesPipelineBoundedFilters(imagesService)
 
-	return createImagesWithPipeline(pipeline, engine)
+	return createImagesWithPipeline(pipeline)
 }
 
-func createImagesWithPipeline(pipeline *pipe.Pipeline, engine policy.ImageRequestsEngine) func(w http.ResponseWriter, r *http.Request) {
+func createImagesWithPipeline(pipeline *pipe.Pipeline) func(w http.ResponseWriter, r *http.Request) {
 
 	return func(w http.ResponseWriter, r *http.Request) {
-		err := r.ParseMultipartForm(1 << 31) // 1GB
-		if err != nil {
-			log.Errorf("ParseMultiPartForm error: %s", err)
-			w.WriteHeader(400)
-			return
-		}
-		fhs := r.MultipartForm.File["images"]
-
-		if b, err := engine.IsAllowed(r.Context(), policy.ImageRequest{
-			Path:           r.URL.Path,
-			Header:         r.Header,
-			NumberOfImages: len(fhs),
-			SizeOfImages:   r.ContentLength,
-		}); b != true || err != nil {
-			w.WriteHeader(400)
-			w.Write([]byte("policy error"))
-			if err != nil {
-				log.Errorf("policy error happened: %s", err)
-			}
-			if b != true {
-				log.Warnf("policy decided false")
-			}
-			return
-		}
-
 		// asynchronously add starting items
+		fhs := r.MultipartForm.File["images"]
 		startingItems := make(chan pipe.Item, len(fhs))
 		go func() {
 			for _, fh := range fhs {

@@ -10,6 +10,7 @@ import (
 
 type ImageRequest struct {
 	Path           string
+	Method         string
 	Header         http.Header
 	NumberOfImages int
 	SizeOfImages   int64
