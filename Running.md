@@ -1,5 +1,15 @@
 # Running the project on your local machine
 
+## 1. Running via docker compose
+
+```bash
+$ docker compose up -d
+```
+
+Visit `localhost:3333` for the website 
+or `localhost:9090` for Grafana-visualized performance data.
+
+## 2. Running semi-manually (archived)
 ### 1. Database
 
 ```bash
@@ -9,13 +19,7 @@ docker exec -it go-pipelines-postgres bash
 &&
 psql -U go-pipelines
 ```
-
-```sql
-CREATE TABLE image (id serial PRIMARY KEY, name VARCHAR, fullpath VARCHAR, thumbnailpath VARCHAR, resolution_x INT, resolution_y INT);
-CREATE TABLE "user" (id serial PRIMARY KEY);
-INSERT INTO "user" values (1);
-CREATE TABLE user_images (user_id INT NOT NULL, image_id INT NOT NULL, PRIMARY KEY (user_id, image_id), FOREIGN KEY (user_id) REFERENCES "user"(id), FOREIGN KEY (image_id) REFERENCES image(id));
-```
+And run the SQL script from `.dockerdb/init.sql`
 
 ### 2. Performance statistics aggregation (optional)
 

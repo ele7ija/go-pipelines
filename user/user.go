@@ -29,12 +29,13 @@ type Service interface {
 	IsAdmin(ctx context.Context, username string) (bool, error)
 }
 
-func NewService(db *sql.DB) Service {
-	return service{db: db}
+func NewService(db *sql.DB, regoPath string) Service {
+	return service{db: db, regoPath: regoPath}
 }
 
 type service struct {
-	db *sql.DB
+	db       *sql.DB
+	regoPath string
 }
 
 func (s service) Login(ctx context.Context, user User) (jwt.JWT, error) {
@@ -91,11 +92,9 @@ func (s service) GetUser(ctx context.Context, receivedJwt jwt.JWT) (User, error)
 
 func (s service) IsAdmin(ctx context.Context, username string) (bool, error) {
 
-	path := "/home/bp/go/src/github.com/ele7ija/go-pipelines/user/rego"
-
 	query, err := rego.New(
 		rego.Query("data.rbac.authz.allow"),
-		rego.Load([]string{path}, nil),
+		rego.Load([]string{s.regoPath}, nil),
 	).PrepareForEval(ctx)
 	if err != nil {
 		log.Errorf("bad Rego: %s", err)

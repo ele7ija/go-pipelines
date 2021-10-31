@@ -20,10 +20,10 @@ type ImageRequestsEngine interface {
 	IsAllowed(ctx context.Context, request ImageRequest) (bool, error)
 }
 
-func NewImageRequestsEngine() ImageRequestsEngine {
+func NewImageRequestsEngine(regoPath string) ImageRequestsEngine {
 	r := rego.New(
 		rego.Query("data.load.image_requests"),
-		rego.Load([]string{"/home/bp/go/src/github.com/ele7ija/go-pipelines/policy/rego"}, nil),
+		rego.Load([]string{regoPath}, nil),
 	)
 	return &imageRequestsEngine{
 		r,

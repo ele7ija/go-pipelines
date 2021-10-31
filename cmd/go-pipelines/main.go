@@ -18,20 +18,32 @@ import (
 	log "github.com/sirupsen/logrus"
 	metrics "github.com/tevjef/go-runtime-metrics"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 )
 
-const (
-	dbhost       = "localhost"
-	dbport       = 5432
-	dbuser       = "go-pipelines"
-	dbpassword   = "go-pipelines"
-	dbname       = "go-pipelines"
-	MaxOpenConns = 40
+var (
+	DbHost         = "localhost"
+	DbPort         = 5432
+	DbUser         = "go-pipelines"
+	DbPassword     = "go-pipelines"
+	DbName         = "go-pipelines"
+	MaxOpenConns   = 40
+	InfluxHost     = "localhost"
+	InfluxPort     = "8086"
+	InfluxName     = "stats"
+	InfluxUsername = "go-pipelines"
+	InfluxPassword = "go-pipelines"
+	HttpPort       = "3333"
+	UserRegoPath   = filepath.Join(os.Getenv("GOPATH"), "src", "github.com", "ele7ija", "go-pipelines", "user", "rego")
+	LoadRegoPath   = filepath.Join(os.Getenv("GOPATH"), "src", "github.com", "ele7ija", "go-pipelines", "policy", "rego")
 )
 
 func main() {
+
+	readEnvironment()
 
 	log.SetFormatter(&log.TextFormatter{
 		FullTimestamp:   true,
@@ -48,7 +60,7 @@ func main() {
 
 	psqlInfo := fmt.Sprintf(
 		"host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
-		dbhost, dbport, dbuser, dbpassword, dbname)
+		DbHost, DbPort, DbUser, DbPassword, DbName)
 	db, err := sql.Open("postgres", psqlInfo)
 	if err != nil {
 		panic(err)
@@ -56,12 +68,12 @@ func main() {
 	db.SetMaxOpenConns(MaxOpenConns)
 	defer db.Close()
 
-	err = db.Ping()
+	err = pingDb(db)
 	if err != nil {
 		panic(err)
 	}
 	log.Info("Successfully connected to DB!")
-	imageRequestsEngine := policy.NewImageRequestsEngine()
+	imageRequestsEngine := policy.NewImageRequestsEngine(LoadRegoPath)
 
 	r.Mount("/api/images", imagesRouter(db, imageRequestsEngine))
 	r.Mount("/api/login", userRouter(db))
@@ -72,19 +84,17 @@ func main() {
 	// Collect performance stats
 	go func() {
 		conf := &metrics.Config{
-			Host:               "localhost:8086",
-			Database:           "stats",
-			Username:           "go-pipelines",
-			Password:           "go-pipelines",
+			Host:               fmt.Sprintf("%s:%s", InfluxHost, InfluxPort),
+			Database:           InfluxName,
+			Username:           InfluxUsername,
+			Password:           InfluxPassword,
 			CollectionInterval: time.Second,
 			BatchInterval:      time.Second * 15,
 		}
-		if err := metrics.RunCollector(conf); err != nil {
-			log.Errorf("An error happened while sending performance stats to InfluxDB: %s", err)
-		}
+		runCollector(conf)
 	}()
 
-	if err := http.ListenAndServe(":3333", r); err != nil {
+	if err := http.ListenAndServe(fmt.Sprintf(":%s", HttpPort), r); err != nil {
 		return
 	}
 }
@@ -108,7 +118,7 @@ func userRouter(db *sql.DB) http.Handler {
 
 // UserOnly does authentication. It puts userId and username into context.
 func UserOnly(db *sql.DB) func(next http.Handler) http.Handler {
-	service := user.NewService(db)
+	service := user.NewService(db, UserRegoPath)
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -137,7 +147,7 @@ func UserOnly(db *sql.DB) func(next http.Handler) http.Handler {
 
 // AdminOnly allows the request only if the user is an admin
 func AdminOnly(db *sql.DB) func(next http.Handler) http.Handler {
-	service := user.NewService(db)
+	service := user.NewService(db, UserRegoPath)
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -217,7 +227,7 @@ func CheckImagePolicy(engine policy.ImageRequestsEngine) func(next http.Handler)
 
 func login(db *sql.DB) func(w http.ResponseWriter, r *http.Request) {
 
-	service := user.NewService(db)
+	service := user.NewService(db, UserRegoPath)
 
 	return func(w http.ResponseWriter, r *http.Request) {
 
@@ -421,4 +431,72 @@ func encodeS256(password string) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func readEnvironment() {
+	if envDbHost := os.Getenv("DB_HOST"); envDbHost != "" {
+		DbHost = envDbHost
+	}
+	if envDbPort := os.Getenv("DB_PORT"); envDbPort != "" {
+		DbPort, _ = strconv.Atoi(envDbPort)
+	}
+	if envDbUsername := os.Getenv("DB_USERNAME"); envDbUsername != "" {
+		DbUser = envDbUsername
+	}
+	if envDbPassword := os.Getenv("DB_PASSWORD"); envDbPassword != "" {
+		DbPassword = envDbPassword
+	}
+	if envDbName := os.Getenv("DB_NAME"); envDbName != "" {
+		DbName = envDbName
+	}
+	if envHttpPort := os.Getenv("HTTP_PORT"); envHttpPort != "" {
+		HttpPort = envHttpPort
+	}
+	if envInHost := os.Getenv("INFLUX_HOST"); envInHost != "" {
+		InfluxHost = envInHost
+	}
+	if envInPort := os.Getenv("INFLUX_PORT"); envInPort != "" {
+		InfluxPort = envInPort
+	}
+	if envInName := os.Getenv("INFLUX_NAME"); envInName != "" {
+		InfluxName = envInName
+	}
+	if envInUsername := os.Getenv("INFLUX_USERNAME"); envInUsername != "" {
+		InfluxUsername = envInUsername
+	}
+	if envInPassword := os.Getenv("INFLUX_PASSWORD"); envInPassword != "" {
+		InfluxPassword = envInPassword
+	}
+	if envUserRego := os.Getenv("USER_REGO_PATH"); envUserRego != "" {
+		UserRegoPath = envUserRego
+	}
+	if envLoadRego := os.Getenv("LOAD_REGO_PATH"); envLoadRego != "" {
+		LoadRegoPath = envLoadRego
+	}
+}
+
+func runCollector(conf *metrics.Config) {
+	for i := 0; i < 10; i++ {
+		if err := metrics.RunCollector(conf); err != nil {
+			log.Errorf("An error happened while sending performance stats to InfluxDB: %s", err)
+		} else {
+			log.Infof("Successfully connected to InfluxDB, sending data...")
+			break
+		}
+		<-time.After(time.Second * 5)
+		log.Warnf("Waited 5s, pinging Influx again...")
+	}
+}
+
+func pingDb(db *sql.DB) (err error) {
+	for i := 0; i < 10; i++ {
+		err = db.Ping()
+		if err == nil {
+			log.Infof("Successfully connected to DB, sending data...")
+			return
+		}
+		<-time.After(time.Second * 3)
+		log.Warnf("Waited 3s, pinging DB again...")
+	}
+	return
 }
